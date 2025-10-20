@@ -1,0 +1,147 @@
+---
+export const prerender = true;
+
+import Layout from '@layouts/Layout.astro';
+import PageHeader from '@components/blog/PageHeader.astro';
+import AccommodationCard from '@components/accommodation/AccommodationCard.astro';
+import AccommodationCategoriesWithCount from '@components/accommodation/AccommodationCategoriesWithCount.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  // Routes hébergements explicites, pas de scaling
+  const langs = ['fr', 'en', 'es'];
+  return langs.map(lang => ({ params: { lang, hebergements_slug: 'hebergements' } }));
+}
+
+const { lang, hebergements_slug } = Astro.params;
+console.log('[hebergements:index] Astro.params:', Astro.params);
+const pageContext = Astro.locals.pageContext;
+console.log('[hebergements:index] pageContext reçu:', pageContext);
+if (!pageContext || pageContext.type !== 'hebergements') {
+  console.error('[hebergements:index] ERREUR contexte absent ou incorrect:', pageContext);
+  throw new Error('Contexte hébergements absent ou incorrect');
+}
+const categoryId = pageContext.entityId;
+console.log('[hebergements:index] categoryId:', categoryId);
+
+// Récupération dynamique de la catégorie racine via Astro Content
+const allCategories = await getCollection('categories');
+const rootCategory = allCategories.find((cat: any) => cat.id === categoryId);
+const translation = rootCategory?.data.translations?.find((t: any) => t.langCode === lang) ?? rootCategory?.data.translations?.[0];
+const pageTitle = translation?.name || 'Hébergements';
+const categoryDescription = translation?.description || null;
+const categorySlug = translation?.seoSlug || 'hebergements';
+
+const subCategories = allCategories.filter((cat: any) => cat.data.parentId === categoryId);
+const subCategoryIds = subCategories.map((c: any) => c.id);
+
+const allPlaces = await getCollection('places');
+const featuredAccommodations = allPlaces.filter((place: any) =>
+  place.data.isFeatured && subCategoryIds.includes(place.data.categoryId)
+).sort((a: any, b: any) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime()).slice(0, 4).map((place: any) => {
+  const translation = place.data.translations?.find((t: any) => t.langCode === lang) ?? place.data.translations?.[0];
+  const category = allCategories.find((cat: any) => cat.id === place.data.categoryId);
+  const catTrans = category?.data.translations?.find((t: any) => t.langCode === lang) ?? category?.data.translations?.[0];
+  return {
+    id: place.id,
+    name: translation?.name || '',
+    summary: translation?.description || '',
+    main_image_url: place.data.mainImageUrl,
+    seo_slug: translation?.seoSlug || '',
+    price_per_night: place.data.detailsAccommodation?.pricePerNight || 0,
+    capacity: place.data.detailsAccommodation?.capacity || 1,
+    category_id: place.data.categoryId,
+    category_name: catTrans?.name || '',
+    category_seo_slug: catTrans?.seoSlug || '',
+  };
+});
+
+const recentAccommodations = allPlaces.filter((place: any) =>
+  subCategoryIds.includes(place.data.categoryId)
+).sort((a: any, b: any) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime()).slice(0, 6).map((place: any) => {
+  const translation = place.data.translations?.find((t: any) => t.langCode === lang) ?? place.data.translations?.[0];
+  const category = allCategories.find((cat: any) => cat.id === place.data.categoryId);
+  const catTrans = category?.data.translations?.find((t: any) => t.langCode === lang) ?? category?.data.translations?.[0];
+  return {
+    id: place.id,
+    name: translation?.name || '',
+    summary: translation?.description || '',
+    main_image_url: place.data.mainImageUrl,
+    seo_slug: translation?.seoSlug || '',
+    price_per_night: place.data.detailsAccommodation?.pricePerNight || 0,
+    capacity: place.data.detailsAccommodation?.capacity || 1,
+    category_id: place.data.categoryId,
+    category_name: catTrans?.name || '',
+    category_seo_slug: catTrans?.seoSlug || '',
+  };
+});
+---
+
+<Layout title={pageTitle} lang={lang}>
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    {hasContext ? (
+      <>
+        <PageHeader
+          title={pageTitle}
+          description={categoryDescription || "Découvrez nos hébergements à Annecy et ses environs."}
+          lang={lang}
+          magazineSlug={categorySlug}
+          breadcrumbItems={[ 
+            { label: lang === 'fr' ? 'Accueil' : 'Home', url: `/${lang}/`, icon: 'openmoji:house' },
+            { label: pageTitle, icon: 'openmoji:bed', isCurrent: true },
+          ]}
+        />
+        <div class="grid grid-cols-1 lg:grid-cols-3 lg:gap-12">
+          <div class="lg:col-span-2">
+            <section class="mb-12">
+              <h2 class="text-3xl font-bold text-gray-800 mb-6">À la une</h2>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {featuredAccommodations.length > 0 ? (
+                  featuredAccommodations.map(place => (
+                    <AccommodationCard
+                      accommodation={place}
+                      lang={lang}
+                      hebergementsSlug={categorySlug}
+                      variantData="full"
+                      variantStyle="featured"
+                    />
+                  ))
+                ) : (
+                  <p class="text-gray-500 col-span-2">Aucun hébergement en vedette pour le moment.</p>
+                )}
+              </div>
+            </section>
+            <section>
+              <h2 class="text-3xl font-bold text-gray-800 mb-6">Hébergements récents</h2>
+              <div class="space-y-6">
+                {recentAccommodations.length > 0 ? (
+                  recentAccommodations.map(place => (
+                    <AccommodationCard
+                      accommodation={place}
+                      lang={lang}
+                      hebergementsSlug={categorySlug}
+                      variantData="recent"
+                      variantStyle="horizontal"
+                    />
+                  ))
+                ) : (
+                  <p class="text-gray-500">Aucun hébergement récent pour le moment.</p>
+                )}
+              </div>
+            </section>
+          </div>
+          <div class="mt-12 lg:mt-0">
+            <aside class="space-y-8 sticky top-8">
+              <AccommodationCategoriesWithCount parentId={categoryId} />
+            </aside>
+          </div>
+        </div>
+      </>
+    ) : (
+      <div class="py-16 text-center text-gray-500">
+        <h1 class="text-2xl font-bold mb-4">Aucune catégorie d'hébergements sélectionnée</h1>
+        <p>Impossible d’afficher cette page car le contexte de catégorie est absent ou incorrect.</p>
+      </div>
+    )}
+  </main>
+</Layout>

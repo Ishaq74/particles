@@ -1,0 +1,32 @@
+---
+import Navigation from "./Navigation.astro";
+import LangSwitch from "./LangSwitch.astro";
+import Usermenu from "./Usermenu.astro";
+
+const { lang, site, availableLangs, isUserLoggedIn, userName, userEmail, userAvatarSrc } = Astro.locals;
+
+const menuCategories = site?.menuCategories ?? [];
+
+function getLocalizedUrl(targetLang: string) {
+  const currentPathSegments = Astro.url.pathname.split('/').filter(Boolean);
+  if (currentPathSegments[0] === lang) {
+    currentPathSegments.shift();
+  }
+  const pathWithoutLang = currentPathSegments.join('/') || '';
+  return `/${targetLang}${pathWithoutLang ? '/' + pathWithoutLang : ''}`;
+}
+
+---
+<header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between text-gray-700">
+  <div class="flex items-center space-x-2">
+    <a href={`/${lang}/`} class="text-blue-600 text-lg font-bold">Annecy</a>
+    <span class="text-gray-800 text-lg font-bold">Communautaire</span>
+  </div>
+  <nav class="hidden md:flex items-center space-x-2">
+    <Navigation lang={lang} />
+  </nav>
+  <div class="hidden md:flex items-center space-x-4">
+    <LangSwitch lang={lang} availableLangs={availableLangs} getLocalizedUrl={getLocalizedUrl} />
+    <Usermenu lang={lang} isUserLoggedIn={isUserLoggedIn} userName={userName} userEmail={userEmail} userAvatarSrc={userAvatarSrc} />
+  </div>
+</header>

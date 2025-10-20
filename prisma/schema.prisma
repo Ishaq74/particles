@@ -1,0 +1,282 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String       @id @default(uuid()) @db.Uuid
+  name            String
+  email           String
+  emailVerified   Boolean      @default(false)
+  image           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @default(now()) @updatedAt
+  username        String?
+  displayUsername String?
+  role            String?
+  banned          Boolean?     @default(false)
+  banReason       String?
+  banExpires      DateTime?
+  sessions        Session[]
+  accounts        Account[]
+  members         Member[]
+  invitations     Invitation[]
+  authors         Author[] // Relation avec les auteurs du magazine
+
+  @@unique([email])
+  @@unique([username])
+  @@map("user")
+}
+
+model Session {
+  id                   String   @id @default(uuid()) @db.Uuid
+  expiresAt            DateTime
+  token                String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  ipAddress            String?
+  userAgent            String?
+  userId               String   @db.Uuid
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  impersonatedBy       String?
+  activeOrganizationId String?
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(uuid()) @db.Uuid
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(uuid()) @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@map("verification")
+}
+
+model Organization {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String
+  logo        String?
+  createdAt   DateTime
+  metadata    String?
+  members     Member[]
+  invitations Invitation[]
+
+  @@unique([slug])
+  @@map("organization")
+}
+
+model Member {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String
+  createdAt      DateTime
+
+  @@map("member")
+}
+
+model Invitation {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           String?
+  status         String
+  expiresAt      DateTime
+  inviterId      String       @db.Uuid
+  user           User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@map("invitation")
+}
+
+// === MODELES METIER ANNUAIRE ===
+model Category {
+  id           String   @id @default(uuid()) @db.Uuid
+  parentId     String?  @db.Uuid
+  parent       Category? @relation("CategoryParent", fields: [parentId], references: [id])
+  children     Category[] @relation("CategoryParent")
+  slug         String   @unique
+  iconName     String?
+  isActive     Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+  translations CategoryTranslation[]
+  articles     Article[]
+  places       Place[]
+}
+
+model CategoryTranslation {
+  id          String   @id @default(uuid()) @db.Uuid
+  categoryId  String   @db.Uuid
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  langCode    String
+  name        String
+  seoSlug     String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@unique([categoryId, langCode])
+}
+
+model Author {
+  id              String   @id @default(uuid()) @db.Uuid
+  slug            String   @unique
+  name            String
+  profileImageUrl String?
+  socialLinks     Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+  translations    AuthorTranslation[]
+  articles        Article[]
+  userId          String?  @db.Uuid
+  user            User?    @relation(fields: [userId], references: [id]) // Lien optionnel vers User (Better Auth)
+}
+
+model AuthorTranslation {
+  id        String   @id @default(uuid()) @db.Uuid
+  authorId  String   @db.Uuid
+  author    Author   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  langCode  String
+  bio       String?
+  seoSlug   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([authorId, langCode])
+}
+
+model Article {
+  id                String   @id @default(uuid()) @db.Uuid
+  categoryId        String   @db.Uuid
+  category          Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  authorId          String   @db.Uuid
+  author            Author   @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  featuredImageUrl  String?
+  publicationDate   DateTime @default(now())
+  readTimeMinutes   Int      @default(5)
+  viewCount         Int      @default(0)
+  isFeatured        Boolean  @default(false)
+  status            String   @default("draft")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+  deletedAt         DateTime?
+  translations      ArticleTranslation[]
+  comments          Comment[]
+  relatedArticles   ArticleRelatedArticle[] @relation("ArticleRelated")
+  relatedTo         ArticleRelatedArticle[] @relation("ArticleRelatedTo")
+}
+
+model ArticleTranslation {
+  id               String   @id @default(uuid()) @db.Uuid
+  articleId        String   @db.Uuid
+  article          Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  langCode         String
+  name             String
+  description      String?
+  content          String?
+  featuredImageAlt String?
+  seoSlug          String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+
+  @@unique([articleId, langCode])
+}
+
+model ArticleRelatedArticle {
+  id               String   @id @default(uuid()) @db.Uuid
+  articleId        String   @db.Uuid
+  article          Article  @relation("ArticleRelated", fields: [articleId], references: [id], onDelete: Cascade)
+  relatedArticleId String   @db.Uuid
+  relatedArticle   Article  @relation("ArticleRelatedTo", fields: [relatedArticleId], references: [id], onDelete: Cascade)
+  displayOrder     Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  @@unique([articleId, relatedArticleId])
+}
+
+model Comment {
+  id               String   @id @default(uuid()) @db.Uuid
+  articleId        String   @db.Uuid
+  article          Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  parentCommentId  String?  @db.Uuid
+  parentComment    Comment? @relation("CommentParent", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies          Comment[] @relation("CommentParent")
+  authorName       String
+  authorEmail      String
+  content          String
+  status           String   @default("pending")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+  deletedAt        DateTime?
+}
+
+model Place {
+  id               String   @id @default(uuid()) @db.Uuid
+  categoryId       String   @db.Uuid
+  category         Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  mainImageUrl     String?
+  isFeatured       Boolean  @default(false)
+  status           String   @default("draft")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+  deletedAt        DateTime?
+  translations     PlaceTranslation[]
+  details          DetailsAccommodation?
+}
+
+model PlaceTranslation {
+  id          String   @id @default(uuid()) @db.Uuid
+  placeId     String   @db.Uuid
+  place       Place    @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  langCode    String
+  name        String
+  description String?
+  seoSlug     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@unique([placeId, langCode])
+}
+
+model DetailsAccommodation {
+  id              String   @id @default(uuid()) @db.Uuid
+  placeId         String   @unique @db.Uuid
+  place           Place    @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  pricePerNight   Float?
+  capacity        Int?
+  checkInTime     DateTime?
+  checkOutTime    DateTime?
+  amenities       Json?
+}

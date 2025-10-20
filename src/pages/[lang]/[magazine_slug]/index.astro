@@ -1,0 +1,293 @@
+---
+export const prerender = false; // Set to false to render dynamically on each request
+
+import Layout from '@layouts/Layout.astro';
+import { Card, CardHeader, CardContent, CardTitle } from '@components/starwind/card';
+import { Badge } from '@components/starwind/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@components/starwind/avatar';
+import { Button } from '@components/starwind/button';
+import { Input } from '@components/starwind/input';
+import { Icon } from 'astro-icon/components';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator } from '@components/starwind/breadcrumb';
+import { getCollection } from 'astro:content';
+import { getCategoryDefaultSlug } from '@utils/contentLookup';
+import PageHeader from '@components/blog/PageHeader.astro';
+import ArticleCard from '@components/blog/ArticleCard.astro';
+import { getEntry } from 'astro:content';
+import NewsletterCard from '@components/blog/NewsletterCard.astro';
+import ContributeCard from '@components/blog/ContributeCard.astro';
+import CategoriesWithCount from '@components/blog/CategoriesWithCount.astro';
+
+import type { CollectionEntry } from 'astro:content';
+type EnrichedArticle = {
+  article: CollectionEntry<'articles'>;
+  author: CollectionEntry<'authors'> | null;
+  title: string;
+  summary: string;
+  article_featured_image_url?: string;
+  article_featured_image_alt?: string;
+  category_icon_name?: string;
+  category_name?: string;
+  category_seo_slug?: string;
+  article_seo_slug?: string;
+  publication_date?: string;
+  read_time_minutes?: number;
+  view_count?: number;
+};
+
+let featuredArticles: EnrichedArticle[] = [];
+let recentArticles: EnrichedArticle[] = [];
+let sidebarPopularArticles: EnrichedArticle[] = [];
+let sidebarCategories: SidebarCategory[] = [];
+
+interface SidebarCategory {
+  id: string;
+  name: string;
+  seo_slug: string;
+  articles_count: number;
+}
+
+export async function getStaticPaths() {
+  // Routes magazine explicites, pas de scaling
+  const langs = ['fr', 'en', 'es'];
+  return langs.map(lang => ({ params: { lang, magazine_slug: 'magazine' } }));
+}
+
+const { lang, magazine_slug } = Astro.params;
+const pageContext = Astro.locals.pageContext;
+if (!pageContext || pageContext.type !== 'magazine') {
+  throw new Error('Contexte magazine absent ou incorrect');
+}
+const magazineCategoryId = pageContext.entityId;
+const rootCategoryEntry = (pageContext as any).entity ?? null;
+
+let pageTitle = 'Magazine';
+let magazineCategoryIcon: string | null = null;
+let magazineCategoryDescription: string | null = null;
+let magazineSlug: string = typeof pageContext.slug === 'string' && pageContext.slug
+  ? pageContext.slug
+  : (magazine_slug || 'magazine');
+
+
+// 1. Récupération de la catégorie racine magazine avec traduction selon langue
+const categories = await getCollection('categories');
+
+const rootCategory = rootCategoryEntry ?? categories.find((cat: any) => cat.id === magazineCategoryId);
+
+if (rootCategory) {
+  magazineCategoryIcon = rootCategory.data.iconName;
+  const translation = rootCategory.data.translations?.find((t: any) => t.langCode === lang);
+  
+  if (translation) {
+    pageTitle = translation.name;
+    magazineCategoryDescription = translation.description;
+  }
+
+  magazineSlug = pageContext.slug ?? getCategoryDefaultSlug(rootCategory, lang) ?? magazineSlug;
+}
+
+// 2. Récupération des catégories enfants (sous-catégories) avec nombre d’articles
+const sidebarCategoriesRaw = categories.filter((cat: any) => cat.data.parentId === magazineCategoryId);
+sidebarCategories = sidebarCategoriesRaw.map((cat: any) => {
+  const translation = cat.data.translations?.find((t: any) => t.langCode === lang);
+  return {
+    id: cat.id,
+    name: translation?.name || cat.data.slug,
+    seo_slug: translation?.seoSlug || getCategoryDefaultSlug(cat, lang) || cat.data.slug,
+    articles_count: cat.data.articles?.length || 0,
+  };
+});
+
+
+// 3. Récupération des articles
+const articles = await getCollection('articles');
+console.log('[magazine:index] articles:', articles);
+const featuredArticlesRaw = articles.filter((article: any) =>
+  article.data.isFeatured && sidebarCategories.some((cat: any) => cat.id === article.data.categoryId)
+).sort((a: any, b: any) => new Date(b.data.publicationDate).getTime() - new Date(a.data.publicationDate).getTime()).slice(0, 4);
+
+// 4. Récupération des Articles "récents"
+const recentArticlesRaw = articles.filter((article: any) =>
+  sidebarCategories.some((cat: any) => cat.id === article.data.categoryId)
+).sort((a: any, b: any) => new Date(b.data.publicationDate).getTime() - new Date(a.data.publicationDate).getTime()).slice(0, 6);
+
+// 5. Récupération des articles populaires
+const popularArticlesRaw = articles.filter((article: any) =>
+  sidebarCategories.some((cat: any) => cat.id === article.data.categoryId)
+).sort((a: any, b: any) => (b.data.viewCount || 0) - (a.data.viewCount || 0)).slice(0, 5);
+console.log('[magazine:index] popularArticlesRaw:', popularArticlesRaw);
+
+const mapArticle = async (article: any) => {
+  let translation = {};
+  if (Array.isArray(article.data.translations)) {
+    for (const ref of article.data.translations) {
+      const entry = await getEntry('articleTranslation', ref.id);
+      if (entry && entry.data && entry.data.langCode === lang) {
+        translation = entry.data;
+        break;
+      }
+    }
+    if (Object.keys(translation).length === 0 && article.data.translations[0]) {
+      const entry = await getEntry('articleTranslation', article.data.translations[0].id);
+      if (entry && entry.data) translation = entry.data;
+    }
+  }
+  let author: CollectionEntry<'authors'> | null = null;
+  if (article.data.author) {
+    const entry = await getEntry('authors', article.data.author.id);
+    author = entry ?? null;
+  }
+  return {
+    article: article as CollectionEntry<'articles'>,
+    author,
+    title: (translation && (translation as any).name ? (translation as any).name : article.data.article_title) ?? '',
+    summary: (translation && (translation as any).description ? (translation as any).description : article.data.article_summary) ?? '',
+    article_featured_image_url: article.data.article_featured_image_url,
+    article_featured_image_alt: article.data.article_featured_image_alt ?? (translation && (translation as any).featuredImageAlt ? (translation as any).featuredImageAlt : (translation && (translation as any).name ? (translation as any).name : article.data.article_title)) ?? '',
+    category_icon_name: article.data.category_icon_name,
+    category_name: article.data.category_name ?? '',
+    category_seo_slug: article.data.category_seo_slug ?? '',
+    article_seo_slug: (translation && (translation as any).seoSlug ? (translation as any).seoSlug : article.data.article_seo_slug) ?? '',
+    publication_date: article.data.publicationDate ?? article.data.publication_date ?? '',
+    read_time_minutes: article.data.readTimeMinutes ?? article.data.read_time_minutes ?? '',
+    view_count: article.data.viewCount ?? article.data.view_count ?? ''
+  };
+};
+
+featuredArticles = await Promise.all(featuredArticlesRaw.map(mapArticle));
+recentArticles = await Promise.all(recentArticlesRaw.map(mapArticle));
+sidebarPopularArticles = await Promise.all(popularArticlesRaw.map(mapArticle));
+
+// Helper function for default article images
+const defaultArticleImage = (categoryIcon: string | null) => {
+  const text = categoryIcon ? categoryIcon.replace('openmoji:', '').replace(/-/g, ' ') : 'Article';
+  return `https://placehold.co/800x500/e2e8f0/64748b?text=${text}`;
+};
+
+// Helper function to format dates consistently
+const formatDate = (dateString: string) => {
+  return new Date(dateString).toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' });
+};
+---
+
+<Layout title={pageTitle} lang={lang}>
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <PageHeader
+      title={pageTitle}
+      description={magazineCategoryDescription || "Découvrez les dernières actualités, bons plans et histoires qui font la richesse d'Annecy et de sa région."}
+      lang={lang}
+      magazineSlug={magazineSlug}
+      breadcrumbItems={[
+        { label: lang === 'fr' ? 'Accueil' : lang === 'en' ? 'Home' : 'Inicio', url: `/${lang}/`, icon: 'openmoji:house' },
+        { label: pageTitle, icon: 'openmoji:newspaper', isCurrent: true },
+      ]}
+      icon={magazineCategoryIcon || 'openmoji:books'}
+    />
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 lg:gap-12">
+      <div class="lg:col-span-2">
+        {/* Featured Articles Section */}
+        <section class="mb-12">
+          <h2 class="text-3xl font-bold text-gray-800 mb-6">À la une</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {featuredArticles.length > 0 ? featuredArticles.map(({ article, author, title, summary, article_featured_image_url, article_featured_image_alt, category_icon_name, category_name, category_seo_slug, article_seo_slug, publication_date, read_time_minutes, view_count }) => (
+              <ArticleCard
+                article={article}
+                author={author}
+                title={title}
+                summary={summary}
+                article_featured_image_url={article_featured_image_url}
+                article_featured_image_alt={article_featured_image_alt}
+                category_icon_name={category_icon_name}
+                category_name={category_name}
+                category_seo_slug={category_seo_slug}
+                article_seo_slug={article_seo_slug}
+                publication_date={publication_date}
+                read_time_minutes={read_time_minutes}
+                view_count={view_count}
+                lang={lang}
+                magazineSlug={magazineSlug}
+                variantData="full"
+                variantStyle="featured"
+              />
+            )) : <p class="text-gray-500 col-span-2">Aucun article "À la une" pour le moment.</p>}
+          </div>
+        </section>
+
+        {/* Recent Articles Section */}
+        <section>
+          <h2 class="text-3xl font-bold text-gray-800 mb-6">Articles récents</h2>
+          <div class="space-y-6">
+            {recentArticles.length > 0 ? recentArticles.map(({ article, author, title, summary, article_featured_image_url, article_featured_image_alt, category_icon_name, category_name, category_seo_slug, article_seo_slug, publication_date, read_time_minutes, view_count }) => (
+              <ArticleCard
+                article={article}
+                author={author}
+                title={title}
+                summary={summary}
+                article_featured_image_url={article_featured_image_url}
+                article_featured_image_alt={article_featured_image_alt}
+                category_icon_name={category_icon_name}
+                category_name={category_name}
+                category_seo_slug={category_seo_slug}
+                article_seo_slug={article_seo_slug}
+                publication_date={publication_date}
+                read_time_minutes={read_time_minutes}
+                view_count={view_count}
+                lang={lang}
+                magazineSlug={magazineSlug}
+                variantData="recent"
+                variantStyle="horizontal"
+              />
+            )) : <p class="text-gray-500">Aucun article récent pour le moment.</p>}
+            {/* Placeholder for "Load more" button - uncomment and implement logic later */}
+            {/* {recentArticles.length > 0 && <Button variant="outline" class="w-full mt-8">Charger plus d'articles</Button>} */}
+          </div>
+        </section>
+      </div>
+
+      {/* Sidebar Section */}
+      <div class="mt-12 lg:mt-0">
+        <aside class="space-y-8 sticky top-8">
+          {/* Categories Card */}
+            <CategoriesWithCount parentId={magazineCategoryId} magazineSlug={magazineSlug} />
+
+          <NewsletterCard />
+
+          {/* Popular Articles Card */}
+          <Card>
+            <CardHeader><CardTitle class="flex items-center gap-2"><Icon name="openmoji:rocket" class="h-5 w-5"/> Articles populaires</CardTitle></CardHeader>
+            <CardContent>
+              <ul class="space-y-4">
+                {sidebarPopularArticles.length > 0 ? sidebarPopularArticles.map(({ article, author, title, summary, article_featured_image_url, article_featured_image_alt, category_icon_name, category_name, category_seo_slug, article_seo_slug, publication_date, read_time_minutes, view_count }) => (
+                  <li>
+                    <ArticleCard
+                      article={article}
+                      author={author}
+                      title={title}
+                      summary={summary}
+                      article_featured_image_url={article_featured_image_url}
+                      article_featured_image_alt={article_featured_image_alt}
+                      category_icon_name={category_icon_name}
+                      category_name={category_name}
+                      category_seo_slug={category_seo_slug}
+                      article_seo_slug={article_seo_slug}
+                      publication_date={publication_date}
+                      read_time_minutes={read_time_minutes}
+                      view_count={view_count}
+                      lang={lang}
+                      magazineSlug={magazineSlug}
+                      variantData="popular"
+                      variantStyle="compact"
+                    />
+                  </li>
+                )) : <li class="text-gray-500 text-sm">Aucun article populaire pour le moment.</li>}
+              </ul>
+            </CardContent>
+          </Card>
+
+          <ContributeCard />
+        </aside>
+      </div>
+    </div>
+  </main>
+</Layout>

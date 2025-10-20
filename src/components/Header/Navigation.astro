@@ -1,0 +1,103 @@
+---
+import { Dropdown, DropdownTrigger, DropdownContent, DropdownItem, DropdownLabel } from "@components/starwind/dropdown";
+import { Icon } from "astro-icon/components";
+
+import { getCollection } from 'astro:content';
+
+const { lang } = Astro.props;
+
+const categoriesResult = await getCollection('categories');
+const menuCategories = categoriesResult.map(c => c.data);
+
+function mapMenuCategoriesToMenuItems(categories, lang) {
+  return categories
+    .filter(cat => cat.parentId === null && cat.isActive)
+    .map(cat => {
+      // Récupère la traduction pour la langue courante
+      const translations = cat.translations || cat.category_translations || [];
+      const translation = translations.find(t => t.langCode === lang) || translations[0] || {};
+      const text = translation.name || cat.name || cat.slug;
+      const slug = translation.seoSlug || cat.slug;
+      const href = `/${lang}/${slug}`;
+      const iconName = cat.iconName || cat.icon_name || undefined;
+      // Sous-catégories (dropdown)
+      const children = categories.filter(c => c.parentId === cat.id && c.isActive);
+      let dropdown = undefined;
+      if (children.length > 0) {
+        dropdown = {
+          type: "default",
+          content: [
+            {
+              label: undefined,
+              items: children.map(sub => {
+                const subTranslations = sub.translations || sub.category_translations || [];
+                const subTranslation = subTranslations.find(t => t.langCode === lang) || subTranslations[0] || {};
+                const subText = subTranslation.name || sub.name || sub.slug;
+                const subSlug = subTranslation.seoSlug || sub.slug;
+                return {
+                  text: subText,
+                  href: `/${lang}/${slug}/${subSlug}`,
+                  iconName: sub.iconName || sub.icon_name || undefined,
+                };
+              })
+            }
+          ]
+        };
+      }
+      return {
+        text,
+        href,
+        iconName,
+        dropdown,
+        active: false
+      };
+    });
+}
+
+const menuItems = mapMenuCategoriesToMenuItems(menuCategories, lang);
+---
+<nav class="hidden md:flex items-center space-x-2">
+  {menuItems.map((item) => {
+    if (!item) return null;
+    if (item.dropdown) {
+      return (
+        <Dropdown openOnHover>
+          <DropdownTrigger asChild>
+            <button class:list={[
+              "font-medium flex items-center px-2 py-1 rounded group relative",
+              item.active ? "text-blue-600 border-b-2 border-blue-600" : "hover:text-blue-600 hover:border-b-2 hover:border-transparent"
+            ]}>
+              <a href={item.href} class="flex items-center" tabindex="-1">
+                {item.iconName && <Icon name={item.iconName} class="h-4 w-4 mr-1 text-gray-500 group-hover:text-blue-600" />}
+                <span>{item.text}</span>
+              </a>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 text-gray-500 group-hover:text-blue-600 transition-transform duration-200 group-data-[state=open]:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </DropdownTrigger>
+          <DropdownContent side="bottom" align="start" class="w-56 p-2 rounded-lg shadow-lg bg-white mt-2">
+            {item.dropdown.content[0]?.items.map((link) => (
+              <DropdownItem as="a" href={link.href} class="flex items-center w-full text-left px-3 py-2 text-gray-800 hover:bg-gray-50 hover:text-blue-600 rounded-md">
+                {link.iconName && (<Icon name={link.iconName} class="h-4 w-4 mr-2 text-gray-500 group-hover:text-blue-600" />)}
+                {link.text}
+              </DropdownItem>
+            ))}
+          </DropdownContent>
+        </Dropdown>
+      );
+    } else {
+      return (
+        <div>
+          <a href={item.href} class:list={[
+            "font-medium flex items-center px-2 py-1 rounded group relative",
+            item.active ? "text-blue-600 border-b-2 border-blue-600" : "hover:text-blue-600 hover:border-b-2 hover:border-transparent"
+          ]}>
+            {item.iconName && <Icon name={item.iconName} class="h-4 w-4 mr-1 text-gray-500 group-hover:text-blue-600" />}
+            <span>{item.text}</span>
+          </a>
+        </div>
+      );
+    }
+  })}
+</nav>

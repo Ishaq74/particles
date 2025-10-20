@@ -1,0 +1,92 @@
+---
+import { Card, CardHeader, CardContent, CardTitle } from '@components/starwind/card';
+import { Button } from '@components/starwind/button';
+import { Input } from '@components/starwind/input';
+import { Icon } from 'astro-icon/components';
+
+const { lang } = Astro.locals;
+
+// Textes multilingues
+const texts = {
+  fr: {
+    title: 'Newsletter',
+    description: 'Recevez nos derniers articles dans votre boîte mail.',
+    buttonLabel: "S'abonner",
+    disclaimer: "Pas de spam, c'est promis.",
+    success: "Merci pour votre inscription !",
+    error: "Erreur lors de l'inscription.",
+    placeholder: "Votre email"
+  },
+  en: {
+    title: 'Newsletter',
+    description: 'Get our latest articles in your inbox.',
+    buttonLabel: 'Subscribe',
+    disclaimer: "No spam, we promise.",
+    success: "Thank you for subscribing!",
+    error: "Subscription failed.",
+    placeholder: "Your email"
+  },
+  es: {
+    title: 'Boletín',
+    description: 'Recibe nuestros últimos artículos en tu correo.',
+    buttonLabel: 'Suscribirse',
+    disclaimer: "Sin spam, lo prometemos.",
+    success: "¡Gracias por suscribirte!",
+    error: "Error al suscribirse.",
+    placeholder: "Tu correo electrónico"
+  }
+};
+
+const t = texts[lang] ?? texts.fr;
+
+let email = '';
+let status = '';
+let loading = false;
+
+const handleSubmit = async (event) => {
+  event.preventDefault();
+  status = '';
+  loading = true;
+  // Remplace par ton endpoint d'inscription réel
+  const res = await fetch('/api/newsletter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  });
+  loading = false;
+  if (res.ok) {
+    status = "success";
+    email = '';
+  } else {
+    status = "error";
+  }
+};
+---
+
+<Card>
+  <CardHeader>
+    <CardTitle class="flex items-center gap-2">
+      <Icon name="openmoji:love-letter" class="h-5 w-5" /> {t.title}
+    </CardTitle>
+  </CardHeader>
+  <CardContent>
+    <p class="text-gray-600 mb-4 text-sm">{t.description}</p>
+    <form class="space-y-3" on:submit={handleSubmit}>
+      <Input
+        type="email"
+        placeholder={t.placeholder}
+        aria-label={t.placeholder}
+        required
+        value={email}
+        on:input={e => email = e.target.value}
+        disabled={loading}
+      />
+      <Button class="w-full" type="submit" disabled={loading}>
+        {loading ? "..." : t.buttonLabel}
+      </Button>
+    </form>
+    {status === "success" && <p class="text-green-600 text-xs mt-2 text-center">{t.success}</p>}
+    {status === "error" && <p class="text-red-600 text-xs mt-2 text-center">{t.error}</p>}
+    <p class="text-xs text-gray-400 mt-2 text-center">{t.disclaimer}</p>
+  </CardContent>
+</Card>
