@@ -2,12 +2,15 @@
 import { Card, CardHeader, CardContent, CardTitle } from '@components/starwind/card';
 import { Badge } from '@components/starwind/badge';
 import { Icon } from 'astro-icon/components';
-import { getCollection } from 'astro:content';
-import { getCategoryDefaultSlug } from '@utils/contentLookup';
+import { loadArticleCategorySummaries } from '@utils/articleContent';
 
+export interface Props {
+  parentId: string;
+  magazineSlug: string;
+}
 
 const rawLang = Astro.locals.lang;
-const { parentId, magazineSlug: rawMagazineSlug } = Astro.props;
+const { parentId, magazineSlug: rawMagazineSlug } = Astro.props as Props;
 const lang = rawLang ?? 'fr';
 const magazineSlug = rawMagazineSlug ?? 'magazine';
 
@@ -30,26 +33,10 @@ const t = translations[lang] ?? translations.fr;
 
 // --- Récupération des catégories enfants (sous-catégories) avec nombre d’articles ---
 // (reprend exactement ta logique du frontmatter de index.astro)
-let categories: Array<{ id: string; name: string; seo_slug: string; articles_count: number; }> = [];
-
-if (parentId) {
-  const allCategories = await getCollection('categories');
-  const allArticles = await getCollection('articles');
-  const childCategories = allCategories.filter((cat: any) => cat.data.parentId === parentId);
-  categories = childCategories.map((cat: any) => {
-    const translation = cat.data.translations?.find((t: any) => t.langCode === lang) ?? cat.data.translations?.[0];
-    // Count articles for this category
-    const articles_count = allArticles.filter((article: any) => article.data.categoryId === cat.id).length;
-    return {
-      id: cat.id,
-      name: translation?.name || cat.data.slug,
-      seo_slug: translation?.seoSlug || getCategoryDefaultSlug(cat, lang) || cat.data.slug,
-      articles_count,
-    };
-  });
-}
+const categories = parentId
+  ? await loadArticleCategorySummaries(parentId, lang)
+  : [];
 ---
-
 <Card>
   <CardHeader>
     <CardTitle class="flex items-center gap-2">
@@ -62,9 +49,9 @@ if (parentId) {
       <ul class="space-y-2">
         {categories.map(cat => (
           <li>
-            <a href={`/${lang}/${magazineSlug}/${cat.seo_slug || ''}`} class="flex justify-between items-center text-gray-600 hover:text-blue-600 font-medium p-2 -m-2 rounded-lg hover:bg-slate-50 transition-colors">
+            <a href={`/${lang}/${magazineSlug}/${cat.slug || ''}`} class="flex justify-between items-center text-gray-600 hover:text-blue-600 font-medium p-2 -m-2 rounded-lg hover:bg-slate-50 transition-colors">
               <span>{cat.name}</span>
-              <Badge variant="secondary">{cat.articles_count}</Badge>
+              <Badge variant="secondary">{cat.count}</Badge>
             </a>
           </li>
         ))}

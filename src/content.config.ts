@@ -1,12 +1,3 @@
-// Utilitaire DRY pour obtenir la traduction selon la langue
-export function getTranslation(entry: any, lang: string) {
-  if (!entry || !entry.translations) return {};
-  return (
-    entry.translations.find((t: any) => t.langCode === lang)
-    || entry.translations[0]
-    || {}
-  );
-}
 import { defineCollection } from "astro:content";
 import prisma from "./lib/prisma";
 
@@ -117,10 +108,26 @@ const mapAuthorEntry = (item: any) => ({
   _model: 'author',
 });
 
-const mapPlaceEntry = (item: any) => ({
-  ...item,
-  _model: 'place',
-});
+const mapPlaceEntry = (item: any) => {
+  const data = {
+    ...item,
+    _model: 'place',
+  } as Record<string, unknown>;
+
+  if (item.categoryId) {
+    data.category = { collection: 'categories', id: item.categoryId.toString() };
+  }
+
+  if (Array.isArray(item.translations)) {
+    data.translations = item.translations;
+  }
+
+  if (item.details) {
+    data.details = item.details;
+  }
+
+  return data;
+};
 
 // collections dynamiques Prisma (utilisent les modèles réels du schema.prisma)
 const categories = defineCollection({
@@ -202,22 +209,3 @@ export const collections = {
   places,
   headerNavigation,
 };
-
-// Runtime helpers used by middleware and pages
-export async function getCategories() {
-  const categories = await prisma.category.findMany({ include: { translations: true, children: { include: { translations: true } } }, orderBy: { displayOrder: 'asc' } });
-  return categories.map((cat: any) => ({
-    ...cat,
-    category_translations: cat.translations,
-    icon_name: cat.iconName,
-  }));
-}
-
-export async function getArticles() {
-  const articles = await prisma.article.findMany({ include: { translations: true }, where: { deletedAt: null } });
-  return articles.map((a: any) => ({ ...a }));
-}
-
-export async function getAuthors() {
-  return await prisma.author.findMany({ include: { translations: true } });
-}

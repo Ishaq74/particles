@@ -2,14 +2,15 @@
 import { Card, CardHeader, CardContent, CardTitle } from '@components/starwind/card';
 import { Badge } from '@components/starwind/badge';
 import { Icon } from 'astro-icon/components';
-import { getCollection } from 'astro:content';
+import { loadPlaceCategorySummaries } from '@utils/placeContent';
 
 export interface Props {
   parentId: string;
+  hebergementsSlug: string;
 }
 
 const { lang } = Astro.locals;
-const { parentId } = Astro.props;
+const { parentId, hebergementsSlug } = Astro.props as Props;
 
 const translations = {
   fr: {
@@ -26,26 +27,9 @@ const translations = {
   }
 };
 const t = translations[lang] ?? translations.fr;
-
-let categories = [];
-
-if (parentId) {
-  const allCategories = await getCollection('categories');
-  if (Array.isArray(allCategories)) {
-    const childCategories = allCategories.filter((cat: any) => cat?.data?.parentId === parentId);
-    if (childCategories.length > 0) {
-      categories = childCategories.map((cat: any) => {
-        const translation = cat.data.translations?.find((t: any) => t.langCode === lang) ?? cat.data.translations?.[0];
-        return {
-          id: cat.id,
-          name: translation?.name || cat.data.slug,
-          seo_slug: translation?.seoSlug || cat.data.slug,
-          places_count: cat.data.places?.length || 0,
-        };
-      });
-    }
-  }
-}
+const categories: Array<{ id: string; name: string; slug: string; count: number; }> = parentId
+  ? await loadPlaceCategorySummaries(parentId, lang)
+  : [];
 ---
 
 <Card>
@@ -60,9 +44,9 @@ if (parentId) {
       <ul class="space-y-2">
         {categories.map(cat => (
           <li>
-            <a href={`/${lang}/${cat.seo_slug}`} class="flex justify-between items-center text-gray-600 hover:text-blue-600 font-medium p-2 -m-2 rounded-lg hover:bg-slate-50 transition-colors">
+            <a href={`/${lang}/${hebergementsSlug}/${cat.slug}`} class="flex justify-between items-center text-gray-600 hover:text-blue-600 font-medium p-2 -m-2 rounded-lg hover:bg-slate-50 transition-colors">
               <span>{cat.name}</span>
-              <Badge variant="secondary">{cat.places_count}</Badge>
+              <Badge variant="secondary">{cat.count}</Badge>
             </a>
           </li>
         ))}

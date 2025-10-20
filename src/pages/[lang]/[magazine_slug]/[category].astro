@@ -4,33 +4,15 @@ export const prerender = false;
 import Layout from '@layouts/Layout.astro';
 import { Card, CardHeader, CardContent, CardTitle } from '@components/starwind/card';
 import { Icon } from 'astro-icon/components';
-import { getCollection, getEntry } from 'astro:content';
-import { getCategoryDefaultSlug } from '@utils/contentLookup';
 import PageHeader from '@components/blog/PageHeader.astro';
 import ArticleCard from '@components/blog/ArticleCard.astro';
 import NewsletterCard from '@components/blog/NewsletterCard.astro';
 import ContributeCard from '@components/blog/ContributeCard.astro';
 import CategoriesWithCount from '@components/blog/CategoriesWithCount.astro';
-import type { CollectionEntry } from 'astro:content';
+import { loadArticlesForCategory } from '@utils/articleContent';
 
-type EnrichedArticle = {
-	article: CollectionEntry<'articles'>;
-	author: CollectionEntry<'authors'> | null;
-	title: string;
-	summary: string;
-	article_featured_image_url?: string;
-	article_featured_image_alt?: string;
-	category_icon_name?: string;
-	category_name?: string;
-	category_seo_slug?: string;
-	article_seo_slug?: string;
-	publication_date?: string;
-	read_time_minutes?: number;
-	view_count?: number;
-};
-
-let articles: EnrichedArticle[] = [];
-let sidebarPopularArticles: EnrichedArticle[] = [];
+let articles = [];
+let sidebarPopularArticles = [];
 
 const lang: string = Astro.params.lang || 'fr';
 const { magazine_slug, category: categorySlug } = Astro.params;
@@ -39,6 +21,7 @@ if (!pageContext || pageContext.type !== 'magazine') {
 	throw new Error('Contexte magazine absent ou incorrect');
 }
 const magazineCategoryId = pageContext.entityId;
+const entityConfig = pageContext.entityConfig;
 
 let pageTitle = '';
 let pageDescription = '';
@@ -50,88 +33,42 @@ let categoryIcon: string | null = null;
 let category: any = (pageContext as any).category ?? null;
 let translation: any = null;
 
-const categories = await getCollection('categories');
-const rootCategory = (pageContext as any).entity ?? categories.find((cat: any) => cat.id === magazineCategoryId);
+const { articles: articleSummaries, popular, currentCategory, rootCategory, childCategories } = await loadArticlesForCategory(
+	entityConfig,
+	category?.id ?? pageContext.categoryId ?? magazineCategoryId,
+	lang,
+);
+
+const rootCategoryEntry = (pageContext as any).entity ?? rootCategory?.entry ?? null;
+const resolvedCategory = category ?? currentCategory?.entry ?? null;
+const resolvedCategoryLocalized = currentCategory ?? (resolvedCategory ? { ...resolvedCategory, slug: currentCategory?.slug } : null);
+const resolvedCategorySlug = resolvedCategoryLocalized?.slug ?? categorySlug ?? '';
+
 if (rootCategory) {
-	magazineCategoryIcon = rootCategory.data.iconName ?? null;
-	magazineSlug = pageContext.slug ?? getCategoryDefaultSlug(rootCategory, lang) ?? magazineSlug;
-	const rootTranslation = rootCategory.data.translations?.find((t: any) => t.langCode === lang);
-	if (rootTranslation) {
-		pageDescription = rootTranslation.description ?? pageDescription;
-	}
+	magazineCategoryIcon = rootCategory.entry.data.iconName ?? null;
+	magazineSlug = pageContext.slug ?? rootCategory.slug ?? magazineSlug;
+	pageDescription = rootCategory.description ?? pageDescription;
 }
 
-if (!category) {
-	category = categories.find((cat: any) =>
-		cat.data.parentId === magazineCategoryId &&
-		cat.data.translations?.some((t: any) => t.seoSlug === categorySlug && t.langCode === lang)
-	);
+if (resolvedCategoryLocalized) {
+	pageTitle = resolvedCategoryLocalized.name;
+	pageDescription = resolvedCategoryLocalized.description
+		|| (lang === 'fr' ? 'Découvrez tous nos articles sur ce sujet.' : 'Discover all our articles on this topic.');
+	categoryIcon = resolvedCategoryLocalized.entry.data.iconName ?? null;
 }
 
-translation = category?.data.translations?.find((t: any) => t.langCode === lang);
-if (translation) {
-	pageTitle = translation.name;
-	pageDescription = translation.description || (lang === 'fr' ? 'Découvrez tous nos articles sur ce sujet.' : 'Discover all our articles on this topic.');
-	categoryIcon = category?.data.iconName || null;
+if (!pageTitle && resolvedCategory) {
+	const fallbackTranslation = (resolvedCategory.data as any).translations?.[0];
+	pageTitle = fallbackTranslation?.name ?? resolvedCategory.data.slug;
+	categoryIcon = categoryIcon ?? (resolvedCategory.data as any).iconName ?? null;
 }
 
-// 3. Récupérer les articles de la catégorie courante
-const allArticles = await getCollection('articles');
-const filteredArticles = category ? allArticles.filter((article: any) => article.data.categoryId === category.id) : [];
+articles = articleSummaries;
+sidebarPopularArticles = popular;
 
-const resolvedCategorySlug = translation?.seoSlug
-	?? (category ? getCategoryDefaultSlug(category, lang) : null)
-	?? categorySlug
-	?? '';
-
-const mapArticle = async (article: any) => {
-	let translation = {};
-	if (Array.isArray(article.data.translations)) {
-		for (const ref of article.data.translations) {
-			const entry = await getEntry('articleTranslation', ref.id);
-			if (entry && entry.data && entry.data.langCode === lang) {
-				translation = entry.data;
-				break;
-			}
-		}
-		if (Object.keys(translation).length === 0 && article.data.translations[0]) {
-			const entry = await getEntry('articleTranslation', article.data.translations[0].id);
-			if (entry && entry.data) translation = entry.data;
-		}
-	}
-	let author: CollectionEntry<'authors'> | null = null;
-	if (article.data.author) {
-		const entry = await getEntry('authors', article.data.author.id);
-		author = entry ?? null;
-	}
-	return {
-		article: article as CollectionEntry<'articles'>,
-		author,
-		title: (translation && (translation as any).name ? (translation as any).name : article.data.article_title) ?? '',
-		summary: (translation && (translation as any).description ? (translation as any).description : article.data.article_summary) ?? '',
-		article_featured_image_url: article.data.article_featured_image_url,
-		article_featured_image_alt: article.data.article_featured_image_alt ?? (translation && (translation as any).featuredImageAlt ? (translation as any).featuredImageAlt : (translation && (translation as any).name ? (translation as any).name : article.data.article_title)) ?? '',
-		category_icon_name: article.data.category_icon_name,
-		category_name: article.data.category_name ?? '',
-		category_seo_slug: article.data.category_seo_slug ?? '',
-		article_seo_slug: (translation && (translation as any).seoSlug ? (translation as any).seoSlug : article.data.article_seo_slug) ?? '',
-		publication_date: article.data.publicationDate ?? article.data.publication_date ?? '',
-		read_time_minutes: article.data.readTimeMinutes ?? article.data.read_time_minutes ?? '',
-		view_count: article.data.viewCount ?? article.data.view_count ?? ''
-	};
-};
-
-articles = await Promise.all(filteredArticles.map(mapArticle));
-sidebarPopularArticles = [...articles].sort((a, b) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 5);
-
-const formatDate = (dateString: string) => {
-	return new Date(dateString).toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' });
-};
-
-// Fonction pour générer l'URL localisée (version simple, comme avant)
 function getLocalizedUrl(targetLang: string) {
-	const targetMagazineSlug = rootCategory ? (getCategoryDefaultSlug(rootCategory, targetLang) ?? magazineSlug) : magazineSlug;
-	const targetCategorySlug = category ? (getCategoryDefaultSlug(category, targetLang) ?? resolvedCategorySlug) : resolvedCategorySlug;
+	const targetMagazineSlug = rootCategory ? (rootCategory.slug ?? magazineSlug) : magazineSlug;
+	const targetCategorySlug = resolvedCategoryLocalized?.slug ?? resolvedCategorySlug;
 	return `/${targetLang}/${targetMagazineSlug}/${targetCategorySlug}`;
 }
 ---

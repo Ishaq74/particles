@@ -5,7 +5,7 @@ import Layout from '@layouts/Layout.astro';
 import PageHeader from '@components/blog/PageHeader.astro';
 import AccommodationCard from '@components/accommodation/AccommodationCard.astro';
 import AccommodationCategoriesWithCount from '@components/accommodation/AccommodationCategoriesWithCount.astro';
-import { getCollection } from 'astro:content';
+import { loadPlaceCollections } from '@utils/placeContent';
 
 export async function getStaticPaths() {
   // Routes hébergements explicites, pas de scaling
@@ -14,67 +14,20 @@ export async function getStaticPaths() {
 }
 
 const { lang, hebergements_slug } = Astro.params;
-console.log('[hebergements:index] Astro.params:', Astro.params);
 const pageContext = Astro.locals.pageContext;
-console.log('[hebergements:index] pageContext reçu:', pageContext);
 if (!pageContext || pageContext.type !== 'hebergements') {
-  console.error('[hebergements:index] ERREUR contexte absent ou incorrect:', pageContext);
   throw new Error('Contexte hébergements absent ou incorrect');
 }
 const categoryId = pageContext.entityId;
-console.log('[hebergements:index] categoryId:', categoryId);
+const entityConfig = pageContext.entityConfig;
+const { rootCategory, featured, recent } = await loadPlaceCollections(entityConfig, lang);
 
-// Récupération dynamique de la catégorie racine via Astro Content
-const allCategories = await getCollection('categories');
-const rootCategory = allCategories.find((cat: any) => cat.id === categoryId);
-const translation = rootCategory?.data.translations?.find((t: any) => t.langCode === lang) ?? rootCategory?.data.translations?.[0];
-const pageTitle = translation?.name || 'Hébergements';
-const categoryDescription = translation?.description || null;
-const categorySlug = translation?.seoSlug || 'hebergements';
-
-const subCategories = allCategories.filter((cat: any) => cat.data.parentId === categoryId);
-const subCategoryIds = subCategories.map((c: any) => c.id);
-
-const allPlaces = await getCollection('places');
-const featuredAccommodations = allPlaces.filter((place: any) =>
-  place.data.isFeatured && subCategoryIds.includes(place.data.categoryId)
-).sort((a: any, b: any) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime()).slice(0, 4).map((place: any) => {
-  const translation = place.data.translations?.find((t: any) => t.langCode === lang) ?? place.data.translations?.[0];
-  const category = allCategories.find((cat: any) => cat.id === place.data.categoryId);
-  const catTrans = category?.data.translations?.find((t: any) => t.langCode === lang) ?? category?.data.translations?.[0];
-  return {
-    id: place.id,
-    name: translation?.name || '',
-    summary: translation?.description || '',
-    main_image_url: place.data.mainImageUrl,
-    seo_slug: translation?.seoSlug || '',
-    price_per_night: place.data.detailsAccommodation?.pricePerNight || 0,
-    capacity: place.data.detailsAccommodation?.capacity || 1,
-    category_id: place.data.categoryId,
-    category_name: catTrans?.name || '',
-    category_seo_slug: catTrans?.seoSlug || '',
-  };
-});
-
-const recentAccommodations = allPlaces.filter((place: any) =>
-  subCategoryIds.includes(place.data.categoryId)
-).sort((a: any, b: any) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime()).slice(0, 6).map((place: any) => {
-  const translation = place.data.translations?.find((t: any) => t.langCode === lang) ?? place.data.translations?.[0];
-  const category = allCategories.find((cat: any) => cat.id === place.data.categoryId);
-  const catTrans = category?.data.translations?.find((t: any) => t.langCode === lang) ?? category?.data.translations?.[0];
-  return {
-    id: place.id,
-    name: translation?.name || '',
-    summary: translation?.description || '',
-    main_image_url: place.data.mainImageUrl,
-    seo_slug: translation?.seoSlug || '',
-    price_per_night: place.data.detailsAccommodation?.pricePerNight || 0,
-    capacity: place.data.detailsAccommodation?.capacity || 1,
-    category_id: place.data.categoryId,
-    category_name: catTrans?.name || '',
-    category_seo_slug: catTrans?.seoSlug || '',
-  };
-});
+const pageTitle = rootCategory?.name ?? 'Hébergements';
+const categoryDescription = rootCategory?.description ?? null;
+const hebergementsSlugResolved = pageContext.slug ?? rootCategory?.slug ?? hebergements_slug ?? 'hebergements';
+const featuredAccommodations = featured.map((item) => item.accommodation);
+const recentAccommodations = recent.map((item) => item.accommodation);
+const hasContext = Boolean(pageContext?.entityId);
 ---
 
 <Layout title={pageTitle} lang={lang}>
@@ -85,7 +38,7 @@ const recentAccommodations = allPlaces.filter((place: any) =>
           title={pageTitle}
           description={categoryDescription || "Découvrez nos hébergements à Annecy et ses environs."}
           lang={lang}
-          magazineSlug={categorySlug}
+          magazineSlug={hebergementsSlugResolved}
           breadcrumbItems={[ 
             { label: lang === 'fr' ? 'Accueil' : 'Home', url: `/${lang}/`, icon: 'openmoji:house' },
             { label: pageTitle, icon: 'openmoji:bed', isCurrent: true },
@@ -101,7 +54,7 @@ const recentAccommodations = allPlaces.filter((place: any) =>
                     <AccommodationCard
                       accommodation={place}
                       lang={lang}
-                      hebergementsSlug={categorySlug}
+                      hebergementsSlug={hebergementsSlugResolved}
                       variantData="full"
                       variantStyle="featured"
                     />
@@ -119,7 +72,7 @@ const recentAccommodations = allPlaces.filter((place: any) =>
                     <AccommodationCard
                       accommodation={place}
                       lang={lang}
-                      hebergementsSlug={categorySlug}
+                      hebergementsSlug={hebergementsSlugResolved}
                       variantData="recent"
                       variantStyle="horizontal"
                     />
@@ -132,7 +85,7 @@ const recentAccommodations = allPlaces.filter((place: any) =>
           </div>
           <div class="mt-12 lg:mt-0">
             <aside class="space-y-8 sticky top-8">
-              <AccommodationCategoriesWithCount parentId={categoryId} />
+              <AccommodationCategoriesWithCount parentId={categoryId} hebergementsSlug={hebergementsSlugResolved} />
             </aside>
           </div>
         </div>
