@@ -31,6 +31,7 @@ export type ArticleCollections = {
   childCategories: LocalizedCategory[];
   categoryCounts: Map<string, number>;
   articlesByCategory: Map<string, ArticleSummary[]>;
+  categoryMap: Map<string, LocalizedCategory>;
   featured: ArticleSummary[];
   recent: ArticleSummary[];
   popular: ArticleSummary[];
@@ -42,37 +43,49 @@ const createMutableSummaryStore = () => ({
   popular: [] as ArticleSummary[],
 });
 
-const allocArticleSummary = async (
-  article: ArticleEntry,
-  lang: string,
-  categoryMap: Map<string, LocalizedCategory>,
-  authorCache: Map<string, AuthorEntry | null>,
-) => {
+const resolveArticleTranslation = async (article: ArticleEntry, lang: string) => {
   const normalizedLang = normalizeLang(lang);
-
-  let translation: ArticleTranslationEntry | null = null;
   const translationRefs = Array.isArray(article.data.translations) ? article.data.translations : [];
 
   if (translationRefs.length > 0) {
     const entries = await getEntries(translationRefs as any);
     const typedEntries = entries as ArticleTranslationEntry[];
-    translation = typedEntries.find((entry) => entry?.data?.langCode === normalizedLang)
+    return (
+      typedEntries.find((entry) => entry?.data?.langCode === normalizedLang)
       ?? typedEntries[0]
-      ?? null;
+      ?? null
+    );
   }
 
+  return null;
+};
+
+const resolveAuthor = async (
+  article: ArticleEntry,
+  authorCache: Map<string, AuthorEntry | null>,
+) => {
   const authorRef = (article.data as any).author;
-  let author: AuthorEntry | null = null;
-  if (authorRef?.id) {
-    author = authorCache.get(authorRef.id) ?? null;
-    if (!author) {
-      const fetched = await getEntry('authors', authorRef.id);
-      author = fetched ?? null;
-      authorCache.set(authorRef.id, author);
-    }
+  if (!authorRef?.id) return null;
+
+  if (authorCache.has(authorRef.id)) {
+    return authorCache.get(authorRef.id) ?? null;
   }
 
-  const categoryId = (article.data as any).categoryId ?? authorRef?.categoryId ?? (article.data as any).category?.id ?? '';
+  const fetched = await getEntry('authors', authorRef.id);
+  const author = fetched ?? null;
+  authorCache.set(authorRef.id, author);
+  return author;
+};
+
+const buildArticleSummary = async (
+  article: ArticleEntry,
+  lang: string,
+  categoryMap: Map<string, LocalizedCategory>,
+  authorCache: Map<string, AuthorEntry | null>,
+) => {
+  const translation = await resolveArticleTranslation(article, lang);
+  const author = await resolveAuthor(article, authorCache);
+  const categoryId = (article.data as any).categoryId ?? (article.data as any).category?.id ?? '';
   const category = categoryId ? categoryMap.get(categoryId) : undefined;
 
   return {
@@ -85,11 +98,11 @@ const allocArticleSummary = async (
     category_icon_name: category?.iconName ?? ((article.data as any).category_icon_name ?? null),
     category_name: category?.name ?? (article.data as any).category_name ?? '',
     category_seo_slug: category?.slug ?? (article.data as any).category_seo_slug ?? '',
-  article_seo_slug: translation?.data?.seoSlug ?? (article.data as any).article_seo_slug ?? article.id,
+    article_seo_slug: translation?.data?.seoSlug ?? (article.data as any).article_seo_slug ?? article.id,
     publication_date: ((article.data as any).publicationDate ?? (article.data as any).publication_date ?? null) ?? undefined,
     read_time_minutes: (article.data as any).readTimeMinutes ?? (article.data as any).read_time_minutes ?? undefined,
     view_count: (article.data as any).viewCount ?? (article.data as any).view_count ?? undefined,
-  } as ArticleSummary;
+  } satisfies ArticleSummary;
 };
 
 export const loadArticleCollections = async (entityConfig: EntityConfig, lang: string): Promise<ArticleCollections> => {
@@ -108,7 +121,7 @@ export const loadArticleCollections = async (entityConfig: EntityConfig, lang: s
   const authorCache = new Map<string, AuthorEntry | null>();
 
   for (const article of articles) {
-    const summary = await allocArticleSummary(article, normalizedLang, categoryMap, authorCache);
+    const summary = await buildArticleSummary(article, normalizedLang, categoryMap, authorCache);
     const categoryId = (article.data as any).categoryId;
     if (!categoryId) continue;
 
@@ -149,6 +162,7 @@ export const loadArticleCollections = async (entityConfig: EntityConfig, lang: s
     featured: store.featured.slice(0, 4),
     recent: store.recent.slice(0, 6),
     popular: store.popular.slice(0, 5),
+    categoryMap,
   };
 };
 
@@ -192,4 +206,94 @@ export const loadArticleCategorySummaries = async (parentCategoryId: string, lan
       count: counts.get(entry.id) ?? 0,
     };
   });
+};
+
+export type ArticleDetail = {
+  article: ArticleEntry;
+  translation: ArticleTranslationEntry | null;
+  author: AuthorEntry | null;
+  category: LocalizedCategory | null;
+  title: string;
+  summary: string;
+  content: string;
+  featuredImageUrl: string | null | undefined;
+  featuredImageAlt: string | null | undefined;
+  seoSlug: string;
+  publicationDate?: string;
+  readTimeMinutes?: number;
+  viewCount?: number;
+};
+
+export const loadArticleDetail = async (
+  entityConfig: EntityConfig,
+  article: ArticleEntry,
+  lang: string,
+  translationOverride?: ArticleTranslationEntry | null,
+) => {
+  const normalizedLang = normalizeLang(lang);
+  const collections = await loadArticleCollections(entityConfig, normalizedLang);
+  const authorCache = new Map<string, AuthorEntry | null>();
+
+  const translation = translationOverride ?? await resolveArticleTranslation(article, normalizedLang);
+  const author = await resolveAuthor(article, authorCache);
+  const categoryId = (article.data as any).categoryId ?? (article.data as any).category?.id ?? '';
+  const categoryEntry = categoryId ? await getEntry('categories', categoryId) : null;
+  const localizedCategory = categoryEntry ? toLocalizedCategory(categoryEntry, normalizedLang) : null;
+
+  if (author && author.id) {
+    authorCache.set(author.id, author);
+  }
+
+  const detail: ArticleDetail = {
+    article,
+    translation,
+    author,
+    category: localizedCategory,
+    title: translation?.data?.name ?? (article.data as any).article_title ?? article.id,
+    summary: translation?.data?.description ?? (article.data as any).article_summary ?? '',
+    content: translation?.data?.content ?? (article.data as any).article_body ?? '',
+    featuredImageUrl: (article.data as any).featuredImageUrl ?? (article.data as any).article_featured_image_url ?? null,
+    featuredImageAlt: translation?.data?.featuredImageAlt ?? (article.data as any).article_featured_image_alt ?? null,
+    seoSlug: translation?.data?.seoSlug ?? (article.data as any).article_seo_slug ?? article.id,
+    publicationDate: ((article.data as any).publicationDate ?? (article.data as any).publication_date ?? null) ?? undefined,
+    readTimeMinutes: (article.data as any).readTimeMinutes ?? (article.data as any).read_time_minutes ?? undefined,
+    viewCount: (article.data as any).viewCount ?? (article.data as any).view_count ?? undefined,
+  };
+
+  const sameCategorySummaries = categoryId
+    ? (collections.articlesByCategory.get(categoryId) ?? [])
+    : [];
+
+  const siblings = sameCategorySummaries
+    .filter((summary) => summary.article.id !== article.id)
+    .slice(0, 4);
+
+  const popular = sameCategorySummaries
+    .slice()
+    .sort((a, b) => (b.view_count ?? 0) - (a.view_count ?? 0))
+    .filter((summary) => summary.article.id !== article.id)
+    .slice(0, 5);
+
+  const relatedRefs = Array.isArray((article.data as any).relatedArticles)
+    ? (article.data as any).relatedArticles
+    : [];
+  const relatedEntries = relatedRefs.length > 0 ? await getEntries(relatedRefs as any) : [];
+  const relatedSummaries: ArticleSummary[] = [];
+  for (const entry of relatedEntries) {
+    if (!entry) continue;
+    const relatedArticle = entry as ArticleEntry;
+    const summary = await buildArticleSummary(relatedArticle, normalizedLang, collections.categoryMap, authorCache);
+    if (summary.article.id !== article.id) {
+      relatedSummaries.push(summary);
+    }
+  }
+
+  return {
+    detail,
+    rootCategory: collections.rootCategory,
+    childCategories: collections.childCategories,
+    siblings,
+    popular,
+    related: relatedSummaries,
+  };
 };

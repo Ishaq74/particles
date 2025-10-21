@@ -1,580 +1,525 @@
 ---
-export const prerender = false; // Rendu dynamique car les données dépendent de l'URL
+export const prerender = false;
 
-// Importation des composants nécessaires
 import Layout from '@layouts/Layout.astro';
-import { Card, CardHeader, CardContent, CardTitle } from '@components/starwind/card';
-import { Avatar, AvatarFallback, AvatarImage } from '@components/starwind/avatar';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@components/starwind/accordion';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@components/starwind/tabs';
-import { Badge } from '@components/starwind/badge';
-import { Textarea } from '@components/starwind/textarea';
-import { Button } from '@components/starwind/button';
-import { Input } from '@components/starwind/input';
-import { Icon } from 'astro-icon/components';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator } from '@components/starwind/breadcrumb';
-import prisma from '@lib/prisma';
+import PageHeader from '@components/blog/PageHeader.astro';
 import ArticleCard from '@components/blog/ArticleCard.astro';
+import CategoriesWithCount from '@components/blog/CategoriesWithCount.astro';
 import ContributeCard from '@components/blog/ContributeCard.astro';
 import NewsletterCard from '@components/blog/NewsletterCard.astro';
+import { Card, CardContent, CardHeader, CardTitle } from '@components/starwind/card';
+import { Avatar, AvatarFallback, AvatarImage } from '@components/starwind/avatar';
+import { Badge } from '@components/starwind/badge';
+import { Button } from '@components/starwind/button';
+import { Input } from '@components/starwind/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@components/starwind/tabs';
+import { Textarea } from '@components/starwind/textarea';
+import { Icon } from 'astro-icon/components';
+import { loadArticleDetail } from '@utils/articleContent';
+import { loadCommentsForArticle, type CommentNode } from '@utils/comments';
 
-// Interfaces pour structurer les données
-interface ArticleData {
-  id: string;
-  article_title: string;
-  article_summary: string;
-  article_body: string;
-  article_featured_image_url: string | null;
-  article_featured_image_alt: string | null;
-  article_seo_slug: string;
-  publication_date: string;
-  read_time_minutes: number;
-  view_count: number;
-  author_name: string;
-  author_profile_image_url: string | null;
-  author_bio: string | null;
-  author_slug: string;
-  category_id: string;
-  category_name: string;
-  category_seo_slug: string;
-  category_icon_name: string | null;
-}
-
-interface CommentData {
-  id: string;
-  author_name: string;
-  author_email: string;
-  content: string;
-  created_at: string;
-  parent_comment_id: string | null;
-  children: CommentData[];
-}
-
-interface RelatedArticleData {
-  article_title: string;
-  article_seo_slug: string;
-  category_seo_slug: string;
-  article_featured_image_url: string | null;
-}
-
-// Récupération des paramètres d'URL et de la langue
-const { lang } = Astro.locals;
+const lang: string = Astro.locals.lang ?? 'fr';
 const params = Astro.params;
+const pageContext = Astro.locals.pageContext;
 
-const categorySlug = params.category;
-const articleSlug = params.slug;
-
-// ID fixe de la catégorie racine (magazine)
-const magazineCategoryId = 'd20b7566-105a-47f3-947f-dab773bef43e';
-let magazineSlug = 'magazine';
-
-// Récupération de la catégorie racine pour obtenir le slug traduit
-const rootCategory = await prisma.category.findUnique({
-  where: { id: magazineCategoryId },
-  include: { translations: true },
-});
-
-if (rootCategory) {
-  const translation = rootCategory.translations.find((t: any) => t.langCode === lang);
-  if (translation) {
-    magazineSlug = translation.seoSlug || 'magazine';
-  }
+if (!pageContext || pageContext.type !== 'magazine') {
+	throw new Error('Contexte magazine absent ou incorrect');
 }
 
-// Récupération de l'article spécifique
-let article = null;
-const articleData = await prisma.article.findFirst({
-  where: {
-    translations: {
-      some: {
-        seoSlug: articleSlug,
-        langCode: lang,
-      },
-    },
-    category: {
-      translations: {
-        some: {
-          seoSlug: categorySlug,
-          langCode: lang,
-        },
-      },
-    },
-    author: {
-      translations: {
-        some: { langCode: lang },
-      },
-    },
-  },
-  include: {
-    translations: true,
-    author: { include: { translations: true } },
-    category: { include: { translations: true } },
-  },
-});
+const articleEntry = pageContext.item as import('astro:content').CollectionEntry<'articles'> | null;
+const articleTranslation = pageContext.itemTranslation as import('astro:content').CollectionEntry<'articleTranslation'> | null;
+const entityConfig = pageContext.entityConfig;
 
-if (!articleData) {
-  console.error('Article non trouvé ou invalide:', articleSlug);
-} else {
-  article = {
-    id: articleData.id,
-    article_title: articleData.translations.find((t: any) => t.langCode === lang)?.name,
-    article_summary: articleData.translations.find((t: any) => t.langCode === lang)?.description,
-    article_body: articleData.translations.find((t: any) => t.langCode === lang)?.content,
-    article_featured_image_url: articleData.featuredImageUrl ?? articleData.featured_image_url ?? null,
-    article_featured_image_alt: articleData.translations.find((t: any) => t.langCode === lang)?.featuredImageAlt ?? articleData.translations.find((t: any) => t.langCode === lang)?.featured_image_alt ?? null,
-    article_seo_slug: articleData.translations.find((t: any) => t.langCode === lang)?.seoSlug ?? articleData.translations.find((t: any) => t.langCode === lang)?.seo_slug,
-    publication_date: articleData.publicationDate ?? articleData.publication_date,
-    read_time_minutes: (articleData as any).read_time_minutes ?? (articleData as any).readTimeMinutes ?? 0,
-    view_count: (articleData as any).view_count ?? (articleData as any).viewCount ?? 0,
-    author_name: articleData.author?.name || articleData.author?.fullName || 'Inconnu',
-    author_profile_image_url: articleData.author?.profileImageUrl ?? articleData.author?.profile_image_url ?? null,
-    author_bio: articleData.author?.translations?.[0]?.bio ?? articleData.author?.author_translations?.[0]?.bio ?? null,
-    author_slug: articleData.author?.slug ?? articleData.author?.username ?? '',
-    category_id: articleData.category?.id ?? articleData.categoryId ?? '',
-    category_name: articleData.category?.translations?.find((t: any) => t.langCode === lang)?.name ?? articleData.category?.category_translations?.[0]?.name ?? articleData.category?.name ?? '',
-    category_seo_slug: articleData.category?.translations?.find((t: any) => t.langCode === lang)?.seoSlug ?? articleData.category?.category_translations?.[0]?.seo_slug ?? articleData.category?.slug ?? '',
-    category_icon_name: articleData.category?.icon_name ?? articleData.category?.iconName ?? null,
-  };
+if (!articleEntry || !entityConfig) {
+	throw new Error('Article ou configuration entité manquant dans le contexte');
 }
 
-// Récupération des commentaires
-let flatComments: CommentData[] = [];
-let nestedComments: CommentData[] = [];
-if (article) {
-  const commentsData = await prisma.comment.findMany({
-    where: {
-      articleId: article.id,
-      status: 'approved',
-      deletedAt: null,
-    },
-    orderBy: { createdAt: 'asc' },
-  });
+const translations = {
+	fr: {
+		home: 'Accueil',
+		magazine: 'Magazine',
+		publishedOn: 'Publié le',
+		readTime: 'Temps de lecture',
+		minutes: 'min',
+		comments: 'Commentaires',
+		commentCount: (count: number) => `${count} commentaire${count > 1 ? 's' : ''}`,
+		viewComments: 'Voir les commentaires',
+		writeComment: 'Écrire un commentaire',
+		noComments: 'Aucun commentaire pour le moment.',
+		leaveComment: 'Laisser un commentaire',
+		commentName: 'Votre nom *',
+		commentEmail: 'Votre email (ne sera pas publié) *',
+		commentContent: 'Votre commentaire *',
+		submitComment: 'Envoyer le commentaire',
+		commentSuccess: 'Commentaire envoyé avec succès ! Il sera publié après modération.',
+		commentError: "Erreur lors de l'envoi du commentaire.",
+		categoryFallbackDescription: 'Découvrez tous nos articles sur ce sujet.',
+		categorySectionTitle: 'Dans la même catégorie',
+		relatedTitle: 'Lire aussi',
+		popularTitle: 'Populaires',
+		viewProfile: 'Voir profil',
+		authorArticles: 'Voir tous ses articles',
+		authorFallback: 'Anonyme',
+	},
+	en: {
+		home: 'Home',
+		magazine: 'Magazine',
+		publishedOn: 'Published on',
+		readTime: 'Reading time',
+		minutes: 'min',
+		comments: 'Comments',
+		commentCount: (count: number) => `${count} comment${count === 1 ? '' : 's'}`,
+		viewComments: 'View comments',
+		writeComment: 'Write a comment',
+		noComments: 'No comments yet.',
+		leaveComment: 'Leave a comment',
+		commentName: 'Your name *',
+		commentEmail: 'Your email (will not be published) *',
+		commentContent: 'Your comment *',
+		submitComment: 'Submit comment',
+		commentSuccess: 'Comment submitted! It will be published after moderation.',
+		commentError: 'Error while submitting the comment.',
+		categoryFallbackDescription: 'Discover all our articles on this topic.',
+		categorySectionTitle: 'In the same category',
+		relatedTitle: 'Read also',
+		popularTitle: 'Popular',
+		viewProfile: 'View profile',
+		authorArticles: 'See all articles',
+		authorFallback: 'Anonymous',
+	},
+	es: {
+		home: 'Inicio',
+		magazine: 'Revista',
+		publishedOn: 'Publicado el',
+		readTime: 'Tiempo de lectura',
+		minutes: 'min',
+		comments: 'Comentarios',
+		commentCount: (count: number) => `${count} comentario${count === 1 ? '' : 's'}`,
+		viewComments: 'Ver comentarios',
+		writeComment: 'Escribir un comentario',
+		noComments: 'Sin comentarios por ahora.',
+		leaveComment: 'Dejar un comentario',
+		commentName: 'Su nombre *',
+		commentEmail: 'Su correo (no se publicará) *',
+		commentContent: 'Su comentario *',
+		submitComment: 'Enviar comentario',
+		commentSuccess: '¡Comentario enviado! Será publicado después de moderación.',
+		commentError: 'Error al enviar el comentario.',
+		categoryFallbackDescription: 'Descubre todos nuestros artículos sobre este tema.',
+		categorySectionTitle: 'En la misma categoría',
+		relatedTitle: 'También te puede interesar',
+		popularTitle: 'Populares',
+		viewProfile: 'Ver perfil',
+		authorArticles: 'Ver todos sus artículos',
+		authorFallback: 'Anónimo',
+	},
+} as const;
 
-    if (commentsData) {
-      // Map prisma comment shape to our CommentData shape
-      flatComments = commentsData.map((c: any) => ({
-        id: c.id,
-        author_name: c.authorName ?? c.author_name ?? 'Anonyme',
-        author_email: c.authorEmail ?? c.author_email ?? '',
-        content: c.content,
-        created_at: c.createdAt ? new Date(c.createdAt).toISOString() : (c.created_at ? new Date(c.created_at).toISOString() : new Date().toISOString()),
-        parent_comment_id: c.parentCommentId ?? c.parent_comment_id ?? null,
-        children: []
-      }));
+const t = translations[lang as keyof typeof translations] ?? translations.fr;
 
-      // Build nested tree
-      const commentMap = new Map<string, CommentData>();
-      flatComments.forEach((comment) => {
-        comment.children = [];
-        commentMap.set(comment.id, comment);
-      });
+const articleDetail = await loadArticleDetail(entityConfig, articleEntry, lang, articleTranslation ?? null);
+const { detail, rootCategory, siblings, popular, related } = articleDetail;
 
-      nestedComments = flatComments.filter((comment) => !comment.parent_comment_id);
-      flatComments.forEach((comment) => {
-        if (comment.parent_comment_id) {
-          const parent = commentMap.get(comment.parent_comment_id);
-          if (parent) parent.children.push(comment);
-        }
-      });
-    }
-}
+const commentsData = await loadCommentsForArticle(detail.article.id);
+const { flat: flatComments, nested: nestedComments } = commentsData;
 
-// Récupération des articles dans la même catégorie
-let sameCategoryArticles: RelatedArticleData[] = [];
-if (article) {
-  const fetchedSameCategoryArticles = await prisma.article.findMany({
-    where: {
-      categoryId: article.category_id,
-      id: { not: article.id },
-      translations: { some: { langCode: lang } },
-    },
-    take: 4,
-    include: {
-      translations: true,
-      category: { include: { translations: true } },
-    },
-  });
+const magazineSlug = pageContext.slug ?? params.magazine_slug ?? 'magazine';
+const categorySlug = detail.category?.slug ?? params.category ?? '';
 
-  if (fetchedSameCategoryArticles) {
-    sameCategoryArticles = fetchedSameCategoryArticles.map((a: any) => ({
-      article_title: a.translations.find((t: any) => t.langCode === lang)?.name ?? a.translations?.[0]?.name ?? '',
-      article_seo_slug: a.translations.find((t: any) => t.langCode === lang)?.seoSlug ?? a.translations?.[0]?.seoSlug ?? '',
-      category_seo_slug: a.category?.translations?.find((t: any) => t.langCode === lang)?.seoSlug ?? a.category?.slug ?? '',
-      article_featured_image_url: a.featuredImageUrl ?? a.featured_image_url ?? null,
-    }));
-  }
-}
+const formatDate = (value?: string) => {
+	if (!value) return '';
+	const parsed = new Date(value);
+	return Number.isNaN(parsed.getTime())
+		? ''
+		: parsed.toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' });
+};
 
-// Récupération des articles liés
-let relatedArticles: RelatedArticleData[] = [];
-if (article) {
-  const { data: relatedArticlesData, error: relatedArticlesError } = await supabase
-    .from('article_related_articles')
-    .select(`
-      related_article:articles!related_article_id(
-        id,
-        featured_image_url,
-        article_translations!inner(name, seo_slug, lang_code),
-        categories!inner(category_translations!inner(seo_slug, lang_code))
-      )
-    `)
-    .eq('article_id', article.id)
-    .eq('related_article.article_translations.lang_code', lang)
-    .eq('related_article.categories.category_translations.lang_code', lang)
-    .order('display_order', { ascending: true })
-    .limit(4);
+const formattedPublicationDate = formatDate(detail.publicationDate);
+const commentCountLabel = t.commentCount(flatComments.length);
 
-  if (relatedArticlesError) {
-    console.error('Erreur récupération articles liés:', relatedArticlesError);
-  } else if (relatedArticlesData) {
-    relatedArticles = relatedArticlesData.map((rel) => ({
-      article_title: rel.related_article.article_translations[0].name,
-      article_seo_slug: rel.related_article.article_translations[0].seo_slug,
-      category_seo_slug: rel.related_article.categories.category_translations[0].seo_slug,
-      article_featured_image_url: rel.related_article.featured_image_url,
-    }));
-  }
-}
+const breadcrumbs = [
+	{ label: t.home, url: `/${lang}/`, icon: 'openmoji:house' },
+	{ label: rootCategory?.name ?? t.magazine, url: `/${lang}/${magazineSlug}`, icon: rootCategory?.iconName ?? 'openmoji:newspaper' },
+	{ label: detail.category?.name ?? categorySlug, url: `/${lang}/${magazineSlug}/${categorySlug}`, icon: detail.category?.iconName ?? 'openmoji:bookmark' },
+	{ label: detail.title, icon: 'openmoji:bookmark-tabs', isCurrent: true },
+];
 
-// Script pour gérer la soumission des commentaires
-const submitComment = `
-  async function handleCommentSubmit(event) {
-    event.preventDefault();
-    const form = event.target;
-    const formData = new FormData(form);
-    const commentData = {
-      article_id: '${article?.id}',
-      author_name: formData.get('author_name'),
-      author_email: formData.get('author_email'),
-      content: formData.get('content'),
-      status: 'PENDING'
-    };
+const authorEntry = detail.author;
+const authorName = authorEntry?.data?.name ?? t.authorFallback;
+const authorSlug = authorEntry?.data?.slug ?? '';
+const authorBio = authorEntry?.data?.bio ?? articleTranslation?.data?.bio ?? '';
 
-    try {
-      const response = await fetch('/api/comments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(commentData)
-      });
+const extractAvatarUrl = (avatar: unknown): string => {
+	if (!avatar) return '';
+	if (typeof avatar === 'string') return avatar;
+	if (typeof avatar === 'object') {
+		const typed = avatar as Record<string, string>;
+		return typed.src ?? typed.url ?? '';
+	}
+	return '';
+};
 
-      if (response.ok) {
-        alert('Commentaire envoyé avec succès ! Il sera publié après modération.');
-        form.reset();
-      } else {
-        alert('Erreur lors de l’envoi du commentaire.');
-      }
-    } catch (error) {
-      console.error('Erreur soumission commentaire:', error);
-      alert('Une erreur est survenue. Veuillez réessayer.');
-    }
-  }
-`;
+const authorAvatarUrl = extractAvatarUrl(authorEntry?.data?.avatar ?? null);
+
+const computeInitials = (value?: string | null) => {
+	if (!value) return '?';
+	return value
+		.split(' ')
+		.filter(Boolean)
+		.map((part) => part[0] ?? '')
+		.join('')
+		.toUpperCase() || '?';
+};
+
+const commentsWithDepth = (() => {
+	const result: Array<{ comment: CommentNode; depth: number }> = [];
+	const traverse = (nodes: CommentNode[], depth: number) => {
+		nodes.forEach((node) => {
+			result.push({ comment: node, depth });
+			if (node.children.length > 0) {
+				traverse(node.children, depth + 1);
+			}
+		});
+	};
+	traverse(nestedComments, 0);
+	return result;
+})();
+
+const siblingsToRender = siblings.slice(0, 4);
+const popularToRender = popular.slice(0, 5);
+const relatedToRender = related.slice(0, 4);
+
+const commentDataset = {
+	articleId: detail.article.id,
+	successMessage: t.commentSuccess,
+	errorMessage: t.commentError,
+};
+
+const articlePageTitle = detail.title;
+const articlePageDescription = detail.summary || t.categoryFallbackDescription;
+const headerIcon = detail.category?.iconName ?? rootCategory?.iconName ?? 'openmoji:newspaper';
+
+const authorInitials = computeInitials(authorName);
+
+const formatDateTime = (value: string) => {
+	const parsed = new Date(value);
+	return Number.isNaN(parsed.getTime())
+		? ''
+		: parsed.toLocaleString(lang, {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit',
+		});
+};
 ---
 
-{article ? (
-  <Layout title={article.article_title} lang={lang}>
-    <script>{submitComment}</script>
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div class="grid grid-cols-1 lg:grid-cols-3 lg:gap-12">
-        <!-- COLONNE PRINCIPALE DE L'ARTICLE -->
-        <div class="lg:col-span-2">
-          <main>
-            <article>
+<Layout title={articlePageTitle} lang={lang}>
+	<PageHeader
+		title={articlePageTitle}
+		description={articlePageDescription}
+		lang={lang}
+		magazineSlug={magazineSlug}
+		breadcrumbItems={breadcrumbs}
+		icon={headerIcon}
+	/>
 
-                
-              <header class="mb-8">
-                <!-- Fil d'Ariane avec slugs dynamiques -->
-                <Breadcrumb class="flex items-center gap-2 text-sm text-gray-500 list-none p-0">
-                  <BreadcrumbItem>
-                    <BreadcrumbLink href={`/${lang}/`} class="flex items-center gap-1.5 hover:text-blue-600 transition-colors">
-                      <Icon name="openmoji:house" class="h-4 w-4" />
-                      <span>Accueil</span>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    <BreadcrumbLink href={`/${lang}/${magazineSlug}`} class="flex items-center gap-1.5 hover:text-blue-600 transition-colors">
-                      <Icon name="openmoji:newspaper" class="h-4 w-4" />
-                      <span>Magazine</span>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    <BreadcrumbLink href={`/${lang}/${magazineSlug}/${article.category_seo_slug}`} class="flex items-center gap-1.5 hover:text-blue-600 transition-colors">
-                      <Icon name={article.category_icon_name || 'openmoji:bookmark'} class="h-4 w-4" />
-                      <span>{article.category_name}</span>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem isCurrentPage class="font-semibold text-gray-700 truncate">{article.article_title}</BreadcrumbItem>
-                </Breadcrumb>
-                <h1 class="text-4xl font-extrabold text-gray-900 tracking-tight lg:text-5xl mt-4">{article.article_title}</h1>
-                <p class="mt-4 text-xl text-gray-600">{article.article_summary}</p>
-                <div class="mt-6 flex items-center gap-8 text-sm text-gray-500 border-t border-b py-4">
-                  <div class="flex items-center gap-3">
-                    <Avatar class="h-10 w-10">
-                      <AvatarImage src={article.author_profile_image_url} alt={article.author_name} />
-                      <AvatarFallback>{article.author_name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p class="font-semibold text-gray-800">{article.author_name}</p>
-                      <a href={`/${lang}/auteurs/${article.author_slug}`} class="text-blue-600 hover:underline">Voir profil</a>
-                    </div>
-                  </div>
-                  <div class="space-y-1">
-                    <p><span class="font-semibold">Publié le:</span> {new Date(article.publication_date).toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                    <p><span class="font-semibold">Temps de lecture:</span> {article.read_time_minutes} min</p>
-                  </div>
-                </div>
-              </header>
-              
-              <div class="prose prose-lg max-w-none">
-                <img src={article.article_featured_image_url} alt={article.article_featured_image_alt} class="rounded-lg shadow-lg mb-8" />
-                <Fragment set:html={article.article_body} />
-              </div>
-            </article>
+	<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+		<div class="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:gap-12">
+			<div class="space-y-12">
+				<article class="space-y-8">
+					{detail.category?.name && (
+						<Badge variant="secondary" class="inline-flex items-center gap-2">
+							{detail.category.iconName && <Icon name={detail.category.iconName} class="h-4 w-4" />}
+							<span>{detail.category.name}</span>
+						</Badge>
+					)}
+					<div class="flex flex-wrap items-center gap-6 text-sm text-gray-500 border border-gray-200 rounded-xl p-4 bg-white shadow-sm">
+						<div class="flex items-center gap-3">
+							<Avatar class="h-12 w-12">
+								{authorAvatarUrl ? (
+									<AvatarImage src={authorAvatarUrl} alt={authorName} />
+								) : (
+									<AvatarFallback>{authorInitials}</AvatarFallback>
+								)}
+							</Avatar>
+							<div>
+								<p class="font-semibold text-gray-800">{authorName}</p>
+								{authorSlug && (
+									<a href={`/${lang}/auteurs/${authorSlug}`} class="text-blue-600 hover:underline">{t.viewProfile}</a>
+								)}
+							</div>
+						</div>
+						{formattedPublicationDate && (
+							<span class="flex items-center gap-2">
+								<Icon name="openmoji:calendar" class="h-4 w-4" />
+								<span>{t.publishedOn}: {formattedPublicationDate}</span>
+							</span>
+						)}
+						{detail.readTimeMinutes && (
+							<span class="flex items-center gap-2">
+								<Icon name="openmoji:stopwatch" class="h-4 w-4" />
+								<span>{t.readTime}: {detail.readTimeMinutes} {t.minutes}</span>
+							</span>
+						)}
+					</div>
 
-            <!-- SECTION COMMENTAIRES -->
-            <section class="mt-16 border-t pt-8">
-              <h3 class="text-xl font-bold mb-6">Commentaires ({flatComments?.length || 0})</h3>
-              <div class="space-y-6">
-                {nestedComments?.map(comment => (
-                  <div class="flex gap-4">
-                    <Avatar class="h-10 w-10 mt-1 shrink-0">
-                      <AvatarFallback>{comment.author_name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                    </Avatar>
-                    <div class="bg-gray-100 p-4 rounded-lg flex-grow">
-                      <p class="font-semibold">{comment.author_name}</p>
-                      <p class="text-gray-700">{comment.content}</p>
-                      <p class="text-xs text-gray-500 mt-2">{new Date(comment.created_at).toLocaleString(lang)}</p>
-                      {comment.children.length > 0 && (
-                        <div class="mt-4 space-y-4 border-l-2 border-gray-200 pl-4">
-                          {comment.children.map(child => (
-                            <div class="flex gap-4">
-                              <Avatar class="h-8 w-8 mt-1 shrink-0">
-                                <AvatarFallback>{child.author_name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                              </Avatar>
-                              <div class="flex-grow">
-                                <p class="font-semibold">{child.author_name}</p>
-                                <p class="text-gray-700 text-sm">{child.content}</p>
-                                <p class="text-xs text-gray-500 mt-2">{new Date(child.created_at).toLocaleString(lang)}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <h2 class="text-2xl font-bold mt-12 mb-6">Laisser un commentaire</h2>
-              <Card>
-                <CardContent class="p-6">
-                  <form onsubmit="handleCommentSubmit(event)" class="space-y-4">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Input name="author_name" placeholder="Votre nom *" required />
-                      <Input name="author_email" type="email" placeholder="Votre email (ne sera pas publié) *" required />
-                    </div>
-                    <Textarea name="content" placeholder="Votre commentaire *" required rows={5}></Textarea>
-                    <Button type="submit">Envoyer le commentaire</Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </section>
+					{detail.featuredImageUrl && (
+						<img
+							src={detail.featuredImageUrl}
+							alt={detail.featuredImageAlt ?? detail.title}
+							class="w-full rounded-3xl shadow-lg border border-gray-100"
+							loading="lazy"
+						/>
+					)}
 
-<!-- SECTION COMMENTAIRES -->
-<section class="mt-16 border-t pt-8">
-  <h3 class="text-xl font-bold mb-6">Commentaires ({flatComments?.length || 0})</h3>
-  <div class="space-y-6">
-    {nestedComments?.map(comment => (
-      <div class="flex gap-4">
-        <Avatar class="h-10 w-10 mt-1 shrink-0">
-          <AvatarFallback>{comment.author_name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-        </Avatar>
-        <div class="bg-gray-100 p-4 rounded-lg flex-grow">
-          <p class="font-semibold">{comment.author_name}</p>
-          <p class="text-gray-700">{comment.content}</p>
-          <p class="text-xs text-gray-500 mt-2">{new Date(comment.created_at).toLocaleString(lang)}</p>
-          {comment.children.length > 0 && (
-            <div class="mt-4 space-y-4 border-l-2 border-gray-200 pl-4">
-              {comment.children.map(child => (
-                <div class="flex gap-4">
-                  <Avatar class="h-8 w-8 mt-1 shrink-0">
-                    <AvatarFallback>{child.author_name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                  </Avatar>
-                  <div class="flex-grow">
-                    <p class="font-semibold">{child.author_name}</p>
-                    <p class="text-gray-700 text-sm">{child.content}</p>
-                    <p class="text-xs text-gray-500 mt-2">{new Date(child.created_at).toLocaleString(lang)}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    ))}
-  </div>
-  <Accordion type="single" collapsible class="mt-12">
-    <AccordionItem value="comment-form">
-      <AccordionTrigger>
-        <h2 class="text-2xl font-bold">Laisser un commentaire</h2>
-      </AccordionTrigger>
-      <AccordionContent>
-        <Card>
-          <CardContent class="p-6">
-            <form onsubmit="handleCommentSubmit(event)" class="space-y-4">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input name="author_name" placeholder="Votre nom *" required />
-                <Input name="author_email" type="email" placeholder="Votre email (ne sera pas publié) *" required />
-              </div>
-              <Textarea name="content" placeholder="Votre commentaire *" required rows={5}></Textarea>
-              <Button type="submit">Envoyer le commentaire</Button>
-            </form>
-          </CardContent>
-        </Card>
-      </AccordionContent>
-    </AccordionItem>
-  </Accordion>
-</section>
+					<div class="prose prose-lg max-w-none">
+						<div set:html={detail.content} />
+					</div>
+				</article>
 
-<!-- SECTION COMMENTAIRES -->
-<section class="mt-16 border-t pt-8">
-  <h3 class="text-xl font-bold mb-6">Commentaires ({flatComments?.length || 0})</h3>
-  <Tabs defaultValue="comments" class="w-full">
-    <TabsList class="grid w-full grid-cols-2">
-      <TabsTrigger value="comments">Voir les commentaires</TabsTrigger>
-      <TabsTrigger value="write">Écrire un commentaire</TabsTrigger>
-    </TabsList>
-    <TabsContent value="comments">
-      <div class="space-y-6 mt-6">
-        {nestedComments?.map(comment => (
-          <div class="flex gap-4">
-            <Avatar class="h-10 w-10 mt-1 shrink-0">
-              <AvatarFallback>{comment.author_name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-            </Avatar>
-            <div class="bg-gray-100 p-4 rounded-lg flex-grow">
-              <p class="font-semibold">{comment.author_name}</p>
-              <p class="text-gray-700">{comment.content}</p>
-              <p class="text-xs text-gray-500 mt-2">{new Date(comment.created_at).toLocaleString(lang)}</p>
-              {comment.children.length > 0 && (
-                <div class="mt-4 space-y-4 border-l-2 border-gray-200 pl-4">
-                  {comment.children.map(child => (
-                    <div class="flex gap-4">
-                      <Avatar class="h-8 w-8 mt-1 shrink-0">
-                        <AvatarFallback>{child.author_name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                      </Avatar>
-                      <div class="flex-grow">
-                        <p class="font-semibold">{child.author_name}</p>
-                        <p class="text-gray-700 text-sm">{child.content}</p>
-                        <p class="text-xs text-gray-500 mt-2">{new Date(child.created_at).toLocaleString(lang)}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </TabsContent>
-    <TabsContent value="write">
-      <Card class="mt-6">
-        <CardContent class="p-6">
-          <h2 class="text-2xl font-bold mb-6">Laisser un commentaire</h2>
-          <form onsubmit="handleCommentSubmit(event)" class="space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input name="author_name" placeholder="Votre nom *" required />
-              <Input name="author_email" type="email" placeholder="Votre email (ne sera pas publié) *" required />
-            </div>
-            <Textarea name="content" placeholder="Votre commentaire *" required rows={5}></Textarea>
-            <Button type="submit">Envoyer le commentaire</Button>
-          </form>
-        </CardContent>
-      </Card>
-    </TabsContent>
-  </Tabs>
-</section>
+				<section class="space-y-6" id="comments">
+					<header class="flex items-center justify-between">
+						<h2 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+							<Icon name="openmoji:speech-balloon" class="h-6 w-6 text-blue-500" />
+							<span>{t.comments}</span>
+							<span class="text-sm text-gray-500">({commentCountLabel})</span>
+						</h2>
+					</header>
 
+					<Tabs defaultValue="comments" class="w-full">
+						<TabsList class="grid w-full grid-cols-2">
+							<TabsTrigger value="comments">{t.viewComments}</TabsTrigger>
+							<TabsTrigger value="write">{t.writeComment}</TabsTrigger>
+						</TabsList>
 
-            <!-- SECTION DANS LA MÊME CATÉGORIE -->
-            {sameCategoryArticles.length > 0 && (
-              <section class="mt-16 border-t pt-8">
-                <h2 class="text-2xl font-bold mb-6">Dans la même catégorie</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {sameCategoryArticles.map(related => {
-                    const relatedUrl = `/${lang}/${magazineSlug}/${related.category_seo_slug}/${related.article_seo_slug}`;
-                    return (
-                <ArticleCard
-                  article={related}
-                  lang={lang}
-                  magazineSlug={magazineSlug}
-                  variantData="related"
-                  variantStyle="horizontal"
-                />
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-          </main>
-        </div>
+						<TabsContent value="comments" class="mt-6 space-y-6">
+							{commentsWithDepth.length === 0 ? (
+								<p class="italic text-gray-500">{t.noComments}</p>
+							) : (
+								commentsWithDepth.map(({ comment, depth }) => (
+									<article
+										class="bg-gray-50 border border-gray-200 rounded-xl p-4 shadow-sm"
+										style={`margin-left: ${depth * 1.5}rem`}
+									>
+										<div class="flex items-start gap-4">
+											<Avatar class="h-10 w-10 shrink-0">
+												<AvatarFallback>{computeInitials(comment.authorName)}</AvatarFallback>
+											</Avatar>
+											<div class="space-y-2">
+												<p class="font-semibold text-gray-800">{comment.authorName}</p>
+												<p class="text-gray-700 text-sm whitespace-pre-line">{comment.content}</p>
+												<p class="text-xs text-gray-500">{formatDateTime(comment.createdAt)}</p>
+											</div>
+										</div>
+									</article>
+								))
+							)}
+						</TabsContent>
 
-        <!-- COLONNE LATÉRALE (SIDEBAR) -->
-        <div class="mt-12 lg:mt-0">
-          <aside class="space-y-8 sticky top-8">
-            <!-- WIDGET AUTEUR -->
-            <Card>
-              <CardHeader class="text-center">
-                <a href={`/${lang}/auteurs/${article.author_slug}`} class="inline-block">
-                  <Avatar class="h-20 w-20 mx-auto border-4 border-white shadow-md">
-                    <AvatarImage src={article.author_profile_image_url} alt={article.author_name} />
-                    <AvatarFallback>{article.author_name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                  </Avatar>
-                </a>
-                <CardTitle class="mt-4">{article.author_name}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p class="text-sm text-gray-600 text-center italic line-clamp-4">{article.author_bio}</p>
-                <Button is="a" href={`/${lang}/auteurs/${article.author_slug}`} variant="outline" size="sm" class="w-full mt-4">Voir tous ses articles</Button>
-              </CardContent>
-            </Card>
+						<TabsContent value="write" class="mt-6">
+							<Card>
+								<CardContent class="p-6 space-y-4">
+									<h3 class="text-xl font-semibold text-gray-900">{t.leaveComment}</h3>
+									<form
+										class="space-y-4"
+										data-comment-form
+										data-article-id={commentDataset.articleId}
+										data-success-message={commentDataset.successMessage}
+										data-error-message={commentDataset.errorMessage}
+									>
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+											<Input name="author_name" placeholder={t.commentName} required />
+											<Input name="author_email" type="email" placeholder={t.commentEmail} required />
+										</div>
+										<Textarea name="content" placeholder={t.commentContent} required rows={5}></Textarea>
+										<Button type="submit">{t.submitComment}</Button>
+									</form>
+								</CardContent>
+							</Card>
+						</TabsContent>
+					</Tabs>
+				</section>
 
-            <!-- WIDGET ARTICLES LIÉS -->
-            {relatedArticles.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle class="flex items-center gap-2"><Icon name="openmoji:link" class="h-5 w-5" /> Lire aussi</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul class="space-y-4">
-                    {relatedArticles.map(related => {
-                      const relatedUrl = `/${lang}/${magazineSlug}/${related.category_seo_slug}/${related.article_seo_slug}`;
-                      return (
-                <ArticleCard
-                  article={related}
-                  lang={lang}
-                  magazineSlug={magazineSlug}
-                  variantData="related"
-                  variantStyle="horizontal"
-                />
-                      );
-                    })}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-                    <NewsletterCard />
+				{siblingsToRender.length > 0 && (
+					<section class="space-y-6">
+						<h2 class="text-2xl font-bold text-gray-900">{t.categorySectionTitle}</h2>
+						<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+							{siblingsToRender.map((item) => (
+								<ArticleCard
+									article={item.article}
+									author={item.author}
+									title={item.title}
+									summary={item.summary}
+									article_featured_image_url={item.article_featured_image_url ?? undefined}
+									article_featured_image_alt={item.article_featured_image_alt ?? undefined}
+									category_icon_name={item.category_icon_name ?? undefined}
+									category_name={item.category_name}
+									category_seo_slug={item.category_seo_slug}
+									article_seo_slug={item.article_seo_slug}
+									publication_date={item.publication_date}
+									read_time_minutes={item.read_time_minutes}
+									view_count={item.view_count}
+									lang={lang}
+									magazineSlug={magazineSlug}
+									variantData="related"
+									variantStyle="horizontal"
+								/>
+							))}
+						</div>
+					</section>
+				)}
+			</div>
 
-        <ContributeCard />
-          </aside>
-        </div>
-      </div>
-    </div>
-  </Layout>
-) : (
-  <div class="text-center py-16">
-    <h1 class="text-2xl font-bold text-gray-800">Article non trouvé</h1>
-    <p class="text-gray-600 mt-2">Vérifiez l’URL ou explorez d’autres articles.</p>
-  </div>
-)}
+			<aside class="space-y-8 mt-12 lg:mt-0">
+				<Card>
+					<CardHeader class="text-center space-y-4">
+						<Avatar class="h-20 w-20 mx-auto border-4 border-white shadow-md">
+							{authorAvatarUrl ? (
+								<AvatarImage src={authorAvatarUrl} alt={authorName} />
+							) : (
+								<AvatarFallback>{authorInitials}</AvatarFallback>
+							)}
+						</Avatar>
+						<CardTitle>{authorName}</CardTitle>
+					</CardHeader>
+					<CardContent class="space-y-4">
+						{authorBio && (
+							<p class="text-sm text-gray-600 text-center italic line-clamp-4">{authorBio}</p>
+						)}
+						{authorSlug && (
+							<Button is="a" href={`/${lang}/auteurs/${authorSlug}`} variant="outline" size="sm" class="w-full">{t.authorArticles}</Button>
+						)}
+					</CardContent>
+				</Card>
+
+				<CategoriesWithCount parentId={pageContext.entityId} magazineSlug={magazineSlug} />
+
+				{popularToRender.length > 0 && (
+					<Card>
+						<CardHeader>
+							<CardTitle class="flex items-center gap-2">
+								<Icon name="openmoji:rocket" class="h-5 w-5" />
+								<span>{t.popularTitle}</span>
+							</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<ul class="space-y-4">
+								{popularToRender.map((item) => (
+									<li>
+										<ArticleCard
+											article={item.article}
+											author={item.author}
+											title={item.title}
+											summary={item.summary}
+											article_featured_image_url={item.article_featured_image_url ?? undefined}
+											article_featured_image_alt={item.article_featured_image_alt ?? undefined}
+											category_icon_name={item.category_icon_name ?? undefined}
+											category_name={item.category_name}
+											category_seo_slug={item.category_seo_slug}
+											article_seo_slug={item.article_seo_slug}
+											publication_date={item.publication_date}
+											read_time_minutes={item.read_time_minutes}
+											view_count={item.view_count}
+											lang={lang}
+											magazineSlug={magazineSlug}
+											variantData="popular"
+											variantStyle="compact"
+										/>
+									</li>
+								))}
+							</ul>
+						</CardContent>
+					</Card>
+				)}
+
+				{relatedToRender.length > 0 && (
+					<Card>
+						<CardHeader>
+							<CardTitle class="flex items-center gap-2">
+								<Icon name="openmoji:link" class="h-5 w-5" />
+								<span>{t.relatedTitle}</span>
+							</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<ul class="space-y-4">
+								{relatedToRender.map((item) => (
+									<li>
+										<ArticleCard
+											article={item.article}
+											author={item.author}
+											title={item.title}
+											summary={item.summary}
+											article_featured_image_url={item.article_featured_image_url ?? undefined}
+											article_featured_image_alt={item.article_featured_image_alt ?? undefined}
+											category_icon_name={item.category_icon_name ?? undefined}
+											category_name={item.category_name}
+											category_seo_slug={item.category_seo_slug}
+											article_seo_slug={item.article_seo_slug}
+											publication_date={item.publication_date}
+											read_time_minutes={item.read_time_minutes}
+											view_count={item.view_count}
+											lang={lang}
+											magazineSlug={magazineSlug}
+											variantData="related"
+											variantStyle="horizontal"
+										/>
+									</li>
+								))}
+							</ul>
+						</CardContent>
+					</Card>
+				)}
+
+				<NewsletterCard />
+				<ContributeCard />
+			</aside>
+		</div>
+	</main>
+
+	<script>
+		const forms = document.querySelectorAll('[data-comment-form]');
+		forms.forEach((form) => {
+			form.addEventListener('submit', async (event) => {
+				event.preventDefault();
+				const target = event.currentTarget as HTMLFormElement;
+				const dataset = target.dataset;
+				const articleId = dataset.articleId;
+				if (!articleId) {
+					return;
+				}
+
+				const successMessage = dataset.successMessage ?? 'Comment submitted.';
+				const errorMessage = dataset.errorMessage ?? 'Unable to submit comment.';
+
+				const formData = new FormData(target);
+				const payload = {
+					article_id: articleId,
+					author_name: formData.get('author_name'),
+					author_email: formData.get('author_email'),
+					content: formData.get('content'),
+					status: 'PENDING',
+				};
+
+				try {
+					const response = await fetch('/api/comments', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(payload),
+					});
+
+					if (response.ok) {
+						alert(successMessage);
+						target.reset();
+					} else {
+						alert(errorMessage);
+					}
+				} catch (error) {
+					console.error('Comment submission failed', error);
+					alert(errorMessage);
+				}
+			});
+		});
+	</script>
+</Layout>
