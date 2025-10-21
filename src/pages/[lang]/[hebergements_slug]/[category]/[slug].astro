@@ -1,0 +1,384 @@
+---
+export const prerender = false;
+
+import Layout from '@layouts/Layout.astro';
+import PageHeader from '@components/blog/PageHeader.astro';
+import AccommodationCard from '@components/accommodation/AccommodationCard.astro';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@components/starwind/card';
+import { Badge } from '@components/starwind/badge';
+import { Button } from '@components/starwind/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@components/starwind/tabs';
+import { Icon } from 'astro-icon/components';
+import { loadPlaceDetail } from '@utils/placeContent';
+
+const lang: string = Astro.locals.lang ?? 'fr';
+const params = Astro.params;
+const pageContext = Astro.locals.pageContext;
+
+if (!pageContext || pageContext.type !== 'hebergements') {
+	throw new Error('Contexte hébergements absent ou incorrect');
+}
+
+const entityConfig = pageContext.entityConfig;
+const placeEntry = pageContext.item as import('astro:content').CollectionEntry<'places'> | null;
+const placeTranslation = pageContext.itemTranslation as Record<string, unknown> | null;
+
+if (!entityConfig || !placeEntry) {
+	throw new Error('Hébergement ou configuration entité manquant dans le contexte');
+}
+
+const hebergementsSlug = pageContext.slug ?? params.hebergements_slug ?? 'hebergements';
+const categorySlug = params.category ?? pageContext.categorySlug ?? '';
+
+const translations = {
+	fr: {
+		home: 'Accueil',
+		hebergements: 'Hébergements',
+		categoryTitle: 'Catégorie',
+		from: 'À partir de',
+		night: '/nuit',
+		capacity: 'Capacité',
+		persons: 'personnes',
+		bookNow: 'Réserver cet hébergement',
+		contact: 'Contactez-nous pour réserver',
+		amenities: 'Équipements',
+		noAmenities: 'Aucun équipement renseigné pour cet hébergement.',
+		description: 'Description',
+		practicalInfo: 'Infos pratiques',
+		checkIn: 'Arrivée',
+		checkOut: 'Départ',
+		popularTitle: 'Populaires à proximité',
+		relatedTitle: 'Vous pourriez aussi aimer',
+		categoryMore: 'Plus dans la catégorie',
+		descriptionFallback: 'Découvrez cet hébergement unique à Annecy.',
+		bookingHint: 'Réservations sur demande, réponse sous 24h.',
+		otherCategories: 'Explorer d’autres catégories',
+		noPracticalInfo: 'Aucune information supplémentaire pour le moment.',
+	},
+	en: {
+		home: 'Home',
+		hebergements: 'Accommodations',
+		categoryTitle: 'Category',
+		from: 'From',
+		night: '/night',
+		capacity: 'Sleeps',
+		persons: 'people',
+		bookNow: 'Book this stay',
+		contact: 'Contact us to book',
+		amenities: 'Amenities',
+		noAmenities: 'No amenities available for this accommodation yet.',
+		description: 'Description',
+		practicalInfo: 'Practical information',
+		checkIn: 'Check-in',
+		checkOut: 'Check-out',
+		popularTitle: 'Popular nearby',
+		relatedTitle: 'You may also like',
+		categoryMore: 'More in this category',
+		descriptionFallback: 'Discover this unique stay in Annecy.',
+		bookingHint: 'Bookings on request, reply within 24 hours.',
+		otherCategories: 'Explore other categories',
+		noPracticalInfo: 'No additional information yet.',
+	},
+	es: {
+		home: 'Inicio',
+		hebergements: 'Alojamientos',
+		categoryTitle: 'Categoría',
+		from: 'Desde',
+		night: '/noche',
+		capacity: 'Capacidad',
+		persons: 'personas',
+		bookNow: 'Reservar este alojamiento',
+		contact: 'Contáctanos para reservar',
+		amenities: 'Equipamientos',
+		noAmenities: 'No hay equipamientos disponibles para este alojamiento.',
+		description: 'Descripción',
+		practicalInfo: 'Información práctica',
+		checkIn: 'Entrada',
+		checkOut: 'Salida',
+		popularTitle: 'Populares cercanos',
+		relatedTitle: 'También te puede interesar',
+		categoryMore: 'Más en esta categoría',
+		descriptionFallback: 'Descubre este alojamiento único en Annecy.',
+		bookingHint: 'Reservas bajo demanda, respuesta en 24 horas.',
+		otherCategories: 'Explorar otras categorías',
+		noPracticalInfo: 'No hay información adicional por ahora.',
+	},
+} as const;
+
+const t = translations[lang as keyof typeof translations] ?? translations.fr;
+
+const placeDetail = await loadPlaceDetail(entityConfig, placeEntry, lang, placeTranslation as any);
+const { detail, rootCategory, childCategories, siblings, popular, related } = placeDetail;
+
+const categoryName = detail.category?.name ?? pageContext.category?.data?.name ?? '';
+const categoryIcon = detail.category?.iconName ?? rootCategory?.iconName ?? 'openmoji:bed';
+
+const breadcrumbs = [
+	{ label: t.home, url: `/${lang}/`, icon: 'openmoji:house' },
+	{ label: rootCategory?.name ?? t.hebergements, url: `/${lang}/${hebergementsSlug}`, icon: rootCategory?.iconName ?? 'openmoji:bed' },
+	{ label: categoryName || t.hebergements, url: `/${lang}/${hebergementsSlug}/${categorySlug}`, icon: categoryIcon },
+	{ label: detail.title, icon: 'openmoji:cityscape', isCurrent: true },
+];
+
+const formatPrice = (price?: number | null) => {
+	if (!price || Number.isNaN(price)) return null;
+	return new Intl.NumberFormat(lang, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(price);
+};
+
+const formattedPrice = formatPrice(detail.pricePerNight ?? undefined);
+
+const formatTime = (value?: string | null) => {
+	if (!value) return null;
+	const parsed = new Date(value);
+	if (Number.isNaN(parsed.getTime())) {
+		return value;
+	}
+	return parsed.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
+};
+
+const checkInTime = formatTime(detail.checkInTime);
+const checkOutTime = formatTime(detail.checkOutTime);
+
+const heroImage = detail.imageUrl ?? (placeEntry.data as any).mainImageUrl ?? null;
+const heroAlt = detail.translation?.name ?? detail.title;
+
+const fallbackDescription = detail.summary || (detail.translation?.description ?? t.descriptionFallback);
+
+const amenityList = detail.amenities;
+
+const siblingsToRender = siblings.slice(0, 3);
+const popularToRender = popular.slice(0, 4);
+const relatedToRender = related.slice(0, 4);
+
+const otherCategories = childCategories.filter((category) => category.id !== (detail.category?.id ?? ''));
+---
+
+<Layout title={detail.title} lang={lang}>
+	<PageHeader
+		title={detail.title}
+		description={fallbackDescription}
+		lang={lang}
+		magazineSlug={hebergementsSlug}
+		breadcrumbItems={breadcrumbs}
+		icon={categoryIcon}
+	/>
+
+	<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+		<div class="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:gap-12">
+			<div class="space-y-10">
+				{heroImage && (
+					<figure class="overflow-hidden rounded-3xl border border-gray-200 shadow-sm">
+						<img src={heroImage} alt={heroAlt} class="w-full h-[340px] object-cover" loading="lazy" />
+					</figure>
+				)}
+
+				<Card>
+					<CardHeader class="flex flex-wrap gap-4 items-center justify-between">
+						<div class="flex items-center gap-3">
+							{categoryIcon && <Icon name={categoryIcon} class="h-6 w-6 text-blue-500" />}
+							<div>
+								<p class="text-sm text-gray-500 uppercase tracking-wide">{t.categoryTitle}</p>
+								<p class="text-lg font-semibold text-gray-900">{categoryName || t.hebergements}</p>
+							</div>
+						</div>
+						<div class="flex flex-wrap gap-4 items-center">
+							{formattedPrice && (
+								<Badge variant="primary" class="text-base">
+									{t.from} {formattedPrice} {t.night}
+								</Badge>
+							)}
+							{detail.capacity && (
+								<Badge variant="secondary" class="text-base">
+									{t.capacity}: {detail.capacity} {t.persons}
+								</Badge>
+							)}
+						</div>
+					</CardHeader>
+					<CardContent class="space-y-6 text-gray-700 leading-relaxed">
+						<p>{fallbackDescription}</p>
+						{detail.translation?.description && detail.translation.description !== fallbackDescription && (
+							<p>{detail.translation.description}</p>
+						)}
+					</CardContent>
+				</Card>
+
+				<Tabs defaultValue="description" class="w-full">
+					<TabsList class="grid grid-cols-3">
+						<TabsTrigger value="description">{t.description}</TabsTrigger>
+						<TabsTrigger value="amenities">{t.amenities}</TabsTrigger>
+						<TabsTrigger value="practical">{t.practicalInfo}</TabsTrigger>
+					</TabsList>
+
+					<TabsContent value="description" class="mt-6">
+						<Card>
+							<CardContent class="space-y-4 text-gray-700">
+								<div set:html={(detail.translation?.content ?? detail.translation?.description ?? '') || fallbackDescription} />
+							</CardContent>
+						</Card>
+					</TabsContent>
+
+					<TabsContent value="amenities" class="mt-6">
+						<Card>
+							<CardContent>
+								{amenityList.length > 0 ? (
+									<ul class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+										{amenityList.map((amenity) => (
+											<li class="flex items-center gap-3 text-gray-700">
+												<Icon name="openmoji:check-mark" class="h-5 w-5 text-green-500" />
+												<span>{amenity}</span>
+											</li>
+										))}
+									</ul>
+								) : (
+									<p class="text-gray-500 text-sm">{t.noAmenities}</p>
+								)}
+							</CardContent>
+						</Card>
+					</TabsContent>
+
+					<TabsContent value="practical" class="mt-6">
+						<Card>
+							<CardContent class="space-y-4 text-gray-700">
+								{checkInTime || checkOutTime ? (
+									<ul class="space-y-2">
+										{checkInTime && (
+											<li class="flex items-center gap-3">
+												<Icon name="openmoji:check-in" class="h-5 w-5 text-blue-500" />
+												<span>{t.checkIn}: {checkInTime}</span>
+											</li>
+										)}
+										{checkOutTime && (
+											<li class="flex items-center gap-3">
+												<Icon name="openmoji:check-out" class="h-5 w-5 text-blue-500" />
+												<span>{t.checkOut}: {checkOutTime}</span>
+											</li>
+										)}
+									</ul>
+								) : (
+									<p class="text-gray-500 text-sm">{t.noPracticalInfo}</p>
+								)}
+							</CardContent>
+						</Card>
+					</TabsContent>
+				</Tabs>
+			</div>
+
+			<aside class="space-y-8 mt-12 lg:mt-0">
+				<Card>
+					<CardHeader>
+						<CardTitle class="text-lg font-semibold text-gray-900">{t.bookNow}</CardTitle>
+					</CardHeader>
+					<CardContent class="text-sm text-gray-600 space-y-4">
+						<p>{t.bookingHint}</p>
+						{formattedPrice && (
+							<p class="flex items-center gap-2 text-gray-800">
+								<Icon name="openmoji:money-with-wings" class="h-5 w-5 text-emerald-500" />
+								<span>{t.from} {formattedPrice} {t.night}</span>
+							</p>
+						)}
+						{detail.capacity && (
+							<p class="flex items-center gap-2">
+								<Icon name="openmoji:busts-in-silhouette" class="h-5 w-5 text-purple-500" />
+								<span>{t.capacity}: {detail.capacity} {t.persons}</span>
+							</p>
+						)}
+					</CardContent>
+					<CardFooter>
+						<Button class="w-full" is="a" href={`mailto:contact@annecy-stays.com?subject=${encodeURIComponent(detail.title)}`}>
+							{t.contact}
+						</Button>
+					</CardFooter>
+				</Card>
+
+				{siblingsToRender.length > 0 && (
+					<section class="space-y-4">
+						<header class="flex items-center gap-2 text-gray-900 font-semibold">
+							<Icon name="openmoji:cityscape" class="h-5 w-5 text-sky-500" />
+							<h2 class="text-base">{t.categoryMore}</h2>
+						</header>
+						<div class="space-y-4">
+							{siblingsToRender.map((item) => (
+								<AccommodationCard
+									accommodation={item.accommodation}
+									lang={lang}
+									hebergementsSlug={hebergementsSlug}
+									variantData="recent"
+									variantStyle="compact"
+								/>
+							))}
+						</div>
+					</section>
+				)}
+
+				{popularToRender.length > 0 && (
+					<section class="space-y-4">
+						<header class="flex items-center gap-2 text-gray-900 font-semibold">
+							<Icon name="openmoji:glowing-star" class="h-5 w-5 text-amber-500" />
+							<h2 class="text-base">{t.popularTitle}</h2>
+						</header>
+						<div class="space-y-4">
+							{popularToRender.map((item) => (
+								<AccommodationCard
+									accommodation={item.accommodation}
+									lang={lang}
+									hebergementsSlug={hebergementsSlug}
+									variantData="popular"
+									variantStyle="simple"
+								/>
+							))}
+						</div>
+					</section>
+				)}
+
+				{relatedToRender.length > 0 && (
+					<section class="space-y-4">
+						<header class="flex items-center gap-2 text-gray-900 font-semibold">
+							<Icon name="openmoji:linked-paperclips" class="h-5 w-5 text-rose-500" />
+							<h2 class="text-base">{t.relatedTitle}</h2>
+						</header>
+						<div class="space-y-4">
+							{relatedToRender.map((item) => (
+								<AccommodationCard
+									accommodation={item.accommodation}
+									lang={lang}
+									hebergementsSlug={hebergementsSlug}
+									variantData="related"
+									variantStyle="simple"
+								/>
+							))}
+						</div>
+					</section>
+				)}
+
+				{otherCategories.length > 0 && (
+					<Card>
+						<CardHeader>
+							<CardTitle class="text-base flex items-center gap-2">
+								<Icon name="openmoji:world-map" class="h-5 w-5 text-indigo-500" />
+								<span>{t.otherCategories}</span>
+							</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<ul class="space-y-2">
+								{otherCategories.map((category) => (
+									<li>
+										<a
+											href={`/${lang}/${hebergementsSlug}/${category.slug}`}
+											class="flex items-center justify-between text-sm text-gray-600 hover:text-blue-600 transition-colors"
+										>
+											<span class="flex items-center gap-2">
+												{category.iconName && <Icon name={category.iconName} class="h-4 w-4" />}
+												{category.name}
+											</span>
+											<Icon name="openmoji:right-arrow" class="h-4 w-4" />
+										</a>
+									</li>
+								))}
+							</ul>
+						</CardContent>
+					</Card>
+				)}
+			</aside>
+		</div>
+	</main>
+</Layout>

@@ -39,6 +39,31 @@ export type PlaceCollections = {
   featured: AccommodationSummary[];
   recent: AccommodationSummary[];
   popular: AccommodationSummary[];
+  categoryMap: Map<string, LocalizedCategory>;
+};
+
+export type PlaceDetail = {
+  place: PlaceEntry;
+  translation: PlaceTranslation | null;
+  category: LocalizedCategory | null;
+  title: string;
+  summary?: string;
+  imageUrl?: string | null;
+  seoSlug: string;
+  pricePerNight?: number | null;
+  capacity?: number | null;
+  amenities: string[];
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+};
+
+export type PlaceDetailResult = {
+  detail: PlaceDetail;
+  rootCategory: LocalizedCategory | null;
+  childCategories: LocalizedCategory[];
+  siblings: AccommodationSummary[];
+  popular: AccommodationSummary[];
+  related: AccommodationSummary[];
 };
 
 const pickPlaceTranslation = (place: PlaceEntry, lang: string): PlaceTranslation | null => {
@@ -136,6 +161,7 @@ export const loadPlaceCollections = async (entityConfig: EntityConfig, lang: str
     featured: featured.slice(0, 4),
     recent: recent.slice(0, 6),
     popular: popular.slice(0, 5),
+    categoryMap,
   };
 };
 
@@ -153,6 +179,99 @@ export const loadPlacesForCategory = async (
       .slice()
       .sort((a, b) => (b.accommodation.price_per_night ?? 0) - (a.accommodation.price_per_night ?? 0))
       .slice(0, 5),
+  };
+};
+
+const coerceAmenities = (value: unknown): string[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object' && 'label' in item) {
+          return String((item as Record<string, unknown>).label ?? '');
+        }
+        return typeof item === 'number' ? item.toString() : '';
+      })
+      .filter(Boolean);
+  }
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => (typeof item === 'string' ? item : typeof item === 'number' ? item.toString() : ''))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const formatTimeValue = (value: unknown): string | null => {
+  if (!value) return null;
+  const asDate = value instanceof Date ? value : new Date(value as string);
+  if (Number.isNaN(asDate.getTime())) {
+    return typeof value === 'string' ? value : null;
+  }
+  return asDate.toISOString();
+};
+
+export const loadPlaceDetail = async (
+  entityConfig: EntityConfig,
+  place: PlaceEntry,
+  lang: string,
+  translationOverride?: PlaceTranslation | null,
+): Promise<PlaceDetailResult> => {
+  const normalizedLang = normalizeLang(lang);
+  const collections = await loadPlaceCollections(entityConfig, normalizedLang);
+
+  const translation = translationOverride ?? pickPlaceTranslation(place, normalizedLang);
+  const categoryId = (place.data as any).categoryId ?? (place.data as any).category?.id ?? '';
+  const category = categoryId ? collections.categoryMap.get(categoryId) ?? null : null;
+  const details = (place.data as any).details ?? (place.data as any).detailsAccommodation ?? {};
+
+  const detail: PlaceDetail = {
+    place,
+    translation,
+    category,
+    title: translation?.name ?? (place.data as any).name ?? place.id,
+    summary: translation?.description ?? (place.data as any).summary ?? '',
+    imageUrl: (place.data as any).mainImageUrl ?? (place.data as any).main_image_url ?? null,
+    seoSlug: translation?.seoSlug ?? (place.data as any).seoSlug ?? place.id,
+    pricePerNight: details?.pricePerNight ?? details?.price_per_night ?? null,
+    capacity: details?.capacity ?? null,
+    amenities: coerceAmenities(details?.amenities ?? (place.data as any).amenities),
+    checkInTime: formatTimeValue(details?.checkInTime ?? details?.check_in_time ?? null),
+    checkOutTime: formatTimeValue(details?.checkOutTime ?? details?.check_out_time ?? null),
+  };
+
+  const sameCategorySummaries = categoryId
+    ? (collections.placesByCategory.get(categoryId) ?? [])
+    : [];
+
+  const siblings = sameCategorySummaries
+    .filter((summary) => summary.accommodation.id !== place.id)
+    .slice(0, 4);
+
+  const popular = sameCategorySummaries
+    .slice()
+    .sort((a, b) => (b.accommodation.price_per_night ?? 0) - (a.accommodation.price_per_night ?? 0))
+    .filter((summary) => summary.accommodation.id !== place.id)
+    .slice(0, 5);
+
+  const related = collections.recent
+    .filter((summary) => summary.accommodation.id !== place.id)
+    .slice(0, 4);
+
+  return {
+    detail,
+    rootCategory: collections.rootCategory,
+    childCategories: collections.childCategories,
+    siblings,
+    popular,
+    related,
   };
 };
 
